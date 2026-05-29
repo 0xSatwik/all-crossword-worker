@@ -1,0 +1,4 @@
+[submodule "plan/all-crossword-worker"]
+	path = plan/all-crossword-worker
+	url = https://github.com/sujitbhai7710/all-crossword-worker.git
+	ignore = untracked
