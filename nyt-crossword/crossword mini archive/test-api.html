@@ -73,6 +73,11 @@
             <button id="fetch-date">Fetch By Date</button>
             <button id="add-date">Add By Date</button>
         </div>
+
+        <div style="margin-top: 10px;">
+            <label for="api-key-input">API Key:</label>
+            <input type="password" id="api-key-input" placeholder="Enter API key for write routes">
+        </div>
     </div>
     
     <div class="section">
@@ -110,8 +115,11 @@
     
     <script>
         // API base URL - replace with your Cloudflare Worker URL
-        const API_BASE_URL = 'https://nyt-mini-archive.dibakar1062.workers.dev';
-        const API_KEY = 'BloggingIo@7';
+        const API_BASE_URL = 'https://nyt-mini-archive.nytsolver.workers.dev';
+
+        function getApiKey() {
+            return document.getElementById('api-key-input').value.trim();
+        }
         
         // Tab switching
         document.getElementById('json-tab').addEventListener('click', function() {
@@ -145,8 +153,19 @@
         
         // Add today's puzzle
         document.getElementById('add-today').addEventListener('click', async () => {
+            const apiKey = getApiKey();
+            if (!apiKey) {
+                displayJsonResponse({ error: 'Please enter an API key' });
+                return;
+            }
+
             try {
-                const response = await fetch(`${API_BASE_URL}/today/add/${API_KEY}`);
+                const response = await fetch(`${API_BASE_URL}/today/add`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${apiKey}`
+                    }
+                });
                 const data = await response.json();
                 displayJsonResponse(data);
             } catch (error) {
@@ -182,9 +201,20 @@
                 displayJsonResponse({ error: 'Please enter a date' });
                 return;
             }
+
+            const apiKey = getApiKey();
+            if (!apiKey) {
+                displayJsonResponse({ error: 'Please enter an API key' });
+                return;
+            }
             
             try {
-                const response = await fetch(`${API_BASE_URL}/date/add/${API_KEY}?date=${date}`);
+                const response = await fetch(`${API_BASE_URL}/date/add?date=${date}`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${apiKey}`
+                    }
+                });
                 const data = await response.json();
                 displayJsonResponse(data);
             } catch (error) {

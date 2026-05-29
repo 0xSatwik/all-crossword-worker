@@ -7,7 +7,7 @@
 const headers = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, OPTIONS, POST',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Content-Type': 'application/json'
 };
 
@@ -184,7 +184,54 @@ function normalizeAnswerForLookup(text) {
 }
 
 function parseSearchMode(mode, defaultMode = 'contains') {
-  return mode === 'exact' ? 'exact' : defaultMode;
+  if (mode === 'exact') return 'exact';
+  if (mode === 'contains') return 'contains';
+  return defaultMode;
+}
+
+function normalizePattern(pattern) {
+  return String(pattern || '')
+    .toUpperCase()
+    .replace(/[^A-Z?]/g, '')
+    .trim();
+}
+
+function matchesPattern(answerNorm, pattern) {
+  if (!pattern) {
+    return true;
+  }
+
+  if (answerNorm.length !== pattern.length) {
+    return false;
+  }
+
+  for (let index = 0; index < pattern.length; index += 1) {
+    if (pattern[index] !== '?' && pattern[index] !== answerNorm[index]) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function authorizeWrite(request, env) {
+  if (!env.API_TOKEN) {
+    return false;
+  }
+
+  return request.headers.get('Authorization') === `Bearer ${env.API_TOKEN}`;
+}
+
+function requireWriteAccess(request, env) {
+  if (request.method !== 'POST') {
+    return errorResponse('Method not allowed. Use POST.', 405);
+  }
+
+  if (!authorizeWrite(request, env)) {
+    return errorResponse('Unauthorized access. Valid API token required.', 401);
+  }
+
+  return null;
 }
 
 function getHotCache(env) {
@@ -265,16 +312,15 @@ async function handleRequest(request, env) {
         deployment_check: "ok",
         endpoints: [
           "/api/puzzle/{date} - Get puzzle by date (YYYY-MM-DD)",
+          "/api/puzzle/latest - Get the most recent puzzle",
           "/api/clues/{date} - Get clues by date (YYYY-MM-DD)",
+          "/api/solve?clue={text}&pattern={optionalPattern} - Solve by clue using stored archive matches",
           "/api/search/answer?q={answer}&mode=exact|contains - Search clues by answer",
           "/api/search/clue?q={text}&mode=exact|contains - Search answers by clue text",
           "/api/related/answer?q={answer} - Get related clues for an answer",
-          "/today/add/{apiKey} - Fetch and add today's puzzle (simple format)",
-          "/date/add/{apiKey}?date=YYYY-MM-DD - Fetch and add puzzle for specific date (simple format)",
-          "/api/add/{date}/{apiKey} - Add or update puzzle for specific date",
-          "/api/update/latest/{apiKey} - Fetch and update the latest puzzle",
-          "/api/delete/{date}/{apiKey} - Deletes puzzle data for a specific date",
-          "/today/commit/{apiKey} - Manually trigger an update of today.json on GitHub"
+          "POST /api/add/{date} - Add or update puzzle for specific date",
+          "POST /api/update/latest - Fetch and update the latest puzzle",
+          "POST /api/delete/{date} - Delete puzzle data for a specific date"
         ]
       }),
       {
@@ -282,6 +328,21 @@ async function handleRequest(request, env) {
         headers: headers
       }
     );
+  }
+
+  if (path === '/api/puzzle/latest') {
+    const latest = await env.DB.prepare(`
+      SELECT date
+      FROM puzzles
+      ORDER BY date DESC
+      LIMIT 1
+    `).first();
+
+    if (!latest?.date) {
+      return errorResponse('No stored puzzles yet.', 404);
+    }
+
+    return await getPuzzleByDate(latest.date, env);
   }
 
   // Route for getting puzzle by date
@@ -334,6 +395,18 @@ async function handleRequest(request, env) {
     return await searchByClueText(clueText, env, mode);
   }
 
+  if (path === '/api/solve') {
+    const params = url.searchParams;
+    const clueText = params.get('clue');
+    const pattern = params.get('pattern');
+
+    if (!clueText) {
+      return errorResponse('Missing search query parameter "clue".');
+    }
+
+    return await solveByClue(clueText, pattern, env);
+  }
+
   // Route for getting all related clues for an answer
   if (path === '/api/related/answer') {
     const params = url.searchParams;
@@ -346,56 +419,19 @@ async function handleRequest(request, env) {
     return await getRelatedClues(answer, env);
   }
 
-  // NEW: Simple route for adding today's puzzle
-  if (path.startsWith('/today/add/')) {
-    const apiKey = path.substring('/today/add/'.length);
-    if (env.API_TOKEN && (!apiKey || apiKey !== env.API_TOKEN)) {
-      return errorResponse('Unauthorized access. Valid API key required.', 401);
-    }
-    return await fetchAndAddLatestPuzzle(env);
+  if (path.startsWith('/today/add/') || path.startsWith('/date/add/') || path.startsWith('/today/commit/')) {
+    return errorResponse('Legacy path-token write routes were removed. Use POST write routes with Authorization: Bearer <API_TOKEN>.', 410);
   }
 
-  // NEW: Simple route for adding a puzzle for a specific date
-  // Supports formats:
-  // 1. /date/add/{apiKey}?date=YYYY-MM-DD
-  // 2. /date/add/{date}/{apiKey}
-  if (path.startsWith('/date/add/')) {
-    const parts = path.split('/').filter(p => p.length > 0);
-    let apiKey = null;
-    let dateInput = null;
-
-    if (parts.length >= 4) {
-      // Format: /date/add/{date}/{apiKey}
-      dateInput = parts[2];
-      apiKey = parts[3];
-    } else if (parts.length === 3) {
-      // Format: /date/add/{apiKey}
-      apiKey = parts[2];
-      dateInput = url.searchParams.get('date');
-    }
-
-    // Validate API Key
-    if (env.API_TOKEN && (!apiKey || apiKey !== env.API_TOKEN)) {
-      // Include received key length for debugging (avoid logging full key)
-      const keyInfo = apiKey ? `(received key length: ${apiKey.length})` : '(no key received)';
-      return errorResponse(`Unauthorized access. Valid API key required. ${keyInfo}`, 401);
-    }
-
-    // Validate Date
-    const date = parseDate(dateInput || 'today');
-    if (!date) {
-      return errorResponse(`Invalid date format. Received: ${dateInput || 'null'}. Use YYYY-MM-DD.`);
-    }
-
-    return await fetchAndAddPuzzle(date, env);
-  }
-
-  // UPDATED: Route for adding a puzzle for a specific date with optional API key in URL
   if (path.startsWith('/api/add/')) {
+    const denied = requireWriteAccess(request, env);
+    if (denied) {
+      return denied;
+    }
+
     const parts = path.split('/').filter(p => p.length > 0);
-    // Expected formats: /api/add/{date} or /api/add/{date}/{apiKey}
-    if (parts.length < 3) {
-      return errorResponse('Invalid URL format. Use /api/add/YYYY-MM-DD/{apiKey}');
+    if (parts.length !== 3) {
+      return errorResponse('Invalid URL format. Use /api/add/YYYY-MM-DD.');
     }
 
     const dateParam = parts[2];
@@ -405,46 +441,28 @@ async function handleRequest(request, env) {
       return errorResponse('Invalid date format. Use YYYY-MM-DD.');
     }
 
-    // Check if API key is in URL or header
-    const urlApiKey = parts.length > 3 ? parts[3] : null;
-    const authToken = request.headers.get('Authorization');
-    const isAuthorized = (env.API_TOKEN && (
-      (urlApiKey && urlApiKey === env.API_TOKEN) ||
-      (authToken && authToken === `Bearer ${env.API_TOKEN}`)
-    )) || !env.API_TOKEN;
-
-    if (!isAuthorized) {
-      return errorResponse('Unauthorized access. Valid API key or token required.', 401);
-    }
-
     return await fetchAndAddPuzzle(date, env);
   }
 
-  // UPDATED: Route for fetching and adding the latest puzzle with optional API key in URL
   if (path.startsWith('/api/update/latest')) {
-    const parts = path.split('/').filter(p => p.length > 0);
-    // Expected formats: /api/update/latest or /api/update/latest/{apiKey}
-
-    const urlApiKey = parts.length > 3 ? parts[3] : null;
-    const authToken = request.headers.get('Authorization');
-    const isAuthorized = (env.API_TOKEN && (
-      (urlApiKey && urlApiKey === env.API_TOKEN) ||
-      (authToken && authToken === `Bearer ${env.API_TOKEN}`)
-    )) || !env.API_TOKEN;
-
-    if (!isAuthorized) {
-      return errorResponse('Unauthorized access. Valid API key or token required.', 401);
+    const denied = requireWriteAccess(request, env);
+    if (denied) {
+      return denied;
     }
 
     return await fetchAndAddLatestPuzzle(env);
   }
 
-  // Add a new endpoint for deleting puzzle data
   if (path.startsWith('/api/delete/') && path.length > 12) {
-    const pathParts = path.slice(12).split('/'); // Split to get date and API key
+    const denied = requireWriteAccess(request, env);
+    if (denied) {
+      return denied;
+    }
+
+    const pathParts = path.slice(12).split('/');
 
     if (pathParts.length < 1) {
-      return errorResponse('Invalid URL format. Use /api/delete/YYYY-MM-DD/apikey');
+      return errorResponse('Invalid URL format. Use /api/delete/YYYY-MM-DD');
     }
 
     const dateParam = pathParts[0];
@@ -454,28 +472,11 @@ async function handleRequest(request, env) {
       return errorResponse('Invalid date format. Use YYYY-MM-DD.');
     }
 
-    // Check if API key is provided and valid
-    const apiKey = pathParts.length > 1 ? pathParts[1] : null;
-
-    if (env.API_TOKEN && (!apiKey || apiKey !== env.API_TOKEN)) {
-      return errorResponse('Unauthorized access. Valid API key required.', 401);
+    if (pathParts.length > 1 && pathParts[1]) {
+      return errorResponse('Delete route no longer accepts API tokens in the URL path.', 400);
     }
 
     return await deletePuzzleByDate(date, env);
-  }
-
-  // NEW: Manual endpoint to trigger today's puzzle commit to GitHub
-  if (path.startsWith('/today/commit/')) {
-    const apiKey = path.substring('/today/commit/'.length);
-
-    // Check if the API token is configured and matches
-    if (!env.API_TOKEN || apiKey !== env.API_TOKEN) {
-      return errorResponse('Unauthorized access. Invalid API key.', 401);
-    }
-
-    // Manually trigger the fetch and update process
-    console.log("Manual trigger for today's puzzle update initiated.");
-    return await fetchAndAddLatestPuzzle(env);
   }
 
   // Default response for unknown routes
@@ -671,6 +672,59 @@ async function searchByAnswer(answer, env, mode = 'exact') {
   }
 }
 
+async function queryClueMatches(clueText, env, mode = 'contains', limit = 100) {
+  const normalizedClue = normalizeClueForLookup(clueText);
+  const isExact = mode === 'exact';
+
+  if (!normalizedClue) {
+    return {
+      normalized: normalizedClue,
+      results: []
+    };
+  }
+
+  const sql = isExact ? `
+    SELECT
+      c.clue_id,
+      c.puzzle_id,
+      c.number,
+      c.direction,
+      c.clue_text,
+      c.answer,
+      p.date,
+      p.title
+    FROM clues c
+    JOIN puzzles p ON c.puzzle_id = p.puzzle_id
+    WHERE c.clue_norm = ?
+    ORDER BY p.date DESC, c.direction, c.number
+    LIMIT ${limit}
+  ` : `
+    SELECT
+      c.clue_id,
+      c.puzzle_id,
+      c.number,
+      c.direction,
+      c.clue_text,
+      c.answer,
+      p.date,
+      p.title
+    FROM clues c
+    JOIN puzzles p ON c.puzzle_id = p.puzzle_id
+    WHERE c.clue_norm LIKE ?
+    ORDER BY p.date DESC, c.direction, c.number
+    LIMIT ${limit}
+  `;
+
+  const result = await env.DB.prepare(sql)
+    .bind(isExact ? normalizedClue : `%${normalizedClue.replace(/[%_]/g, '')}%`)
+    .all();
+
+  return {
+    normalized: normalizedClue,
+    results: result.results || []
+  };
+}
+
 // Search for answers by clue text
 async function searchByClueText(clueText, env, mode = 'contains') {
   try {
@@ -696,43 +750,9 @@ async function searchByClueText(clueText, env, mode = 'contains') {
       }
     }
 
-    const sql = isExact ? `
-      SELECT
-        c.clue_id,
-        c.puzzle_id,
-        c.number,
-        c.direction,
-        c.clue_text,
-        c.answer,
-        p.date,
-        p.title
-      FROM clues c
-      JOIN puzzles p ON c.puzzle_id = p.puzzle_id
-      WHERE c.clue_norm = ?
-      ORDER BY p.date DESC, c.direction, c.number
-      LIMIT 100
-    ` : `
-      SELECT
-        c.clue_id,
-        c.puzzle_id,
-        c.number,
-        c.direction,
-        c.clue_text,
-        c.answer,
-        p.date,
-        p.title
-        FROM clues c
-        JOIN puzzles p ON c.puzzle_id = p.puzzle_id
-        WHERE LOWER(c.clue_text) LIKE ?
-      ORDER BY p.date DESC, c.direction, c.number
-      LIMIT 100
-    `;
+    const clues = await queryClueMatches(clueText, env, mode, 100);
 
-    const clues = await env.DB.prepare(sql)
-      .bind(isExact ? normalizedClue : `%${normalizedClue.replace(/[%_]/g, '')}%`)
-      .all();
-
-    if (!clues.results || clues.results.length === 0) {
+    if (clues.results.length === 0) {
       return successResponse({
         query: clueText,
         mode,
@@ -758,6 +778,100 @@ async function searchByClueText(clueText, env, mode = 'contains') {
     return successResponse(safeData);
   } catch (error) {
     console.error(`Error searching for clue "${clueText}":`, error);
+    return errorResponse(`Database error: ${error.message}`, 500);
+  }
+}
+
+function buildSolveAnswers(matches, pattern) {
+  const answers = new Map();
+
+  for (const match of matches) {
+    const answerNorm = normalizeAnswerForLookup(match.answer);
+    if (!answerNorm || !matchesPattern(answerNorm, pattern)) {
+      continue;
+    }
+
+    const existing = answers.get(answerNorm) || {
+      word: answerNorm,
+      score: 0,
+      frequency: 0,
+      last_seen: match.date || '',
+      sample_clue: cleanClueText(match.clue_text || ''),
+      sample_title: match.title || ''
+    };
+
+    existing.frequency += 1;
+    existing.score += 100;
+
+    if (String(match.date || '') > existing.last_seen) {
+      existing.last_seen = match.date || '';
+      existing.sample_clue = cleanClueText(match.clue_text || '');
+      existing.sample_title = match.title || '';
+    }
+
+    answers.set(answerNorm, existing);
+  }
+
+  return [...answers.values()].sort((left, right) => {
+    if (right.frequency !== left.frequency) {
+      return right.frequency - left.frequency;
+    }
+
+    return String(right.last_seen).localeCompare(String(left.last_seen));
+  });
+}
+
+async function solveByClue(clueText, pattern, env) {
+  try {
+    const normalizedClue = normalizeClueForLookup(clueText);
+    const normalizedPattern = normalizePattern(pattern);
+
+    if (!normalizedClue) {
+      return successResponse({
+        clue: clueText,
+        normalized_clue: normalizedClue,
+        pattern: normalizedPattern,
+        mode: 'exact',
+        count: 0,
+        answers: [],
+        history: []
+      });
+    }
+
+    const cacheVersion = await getHotCacheVersion(env);
+    const cacheKey = buildExactCacheKey('solve', cacheVersion, `${normalizedClue}|${normalizedPattern || '*'}`);
+    const cachedResult = await getCachedJson(env, cacheKey);
+
+    if (cachedResult) {
+      return successResponse(cachedResult);
+    }
+
+    const exact = await queryClueMatches(clueText, env, 'exact', 200);
+    let mode = 'exact';
+    let history = exact.results.filter((match) => matchesPattern(normalizeAnswerForLookup(match.answer), normalizedPattern));
+    let answers = buildSolveAnswers(exact.results, normalizedPattern);
+
+    if (answers.length === 0) {
+      const contains = await queryClueMatches(clueText, env, 'contains', 200);
+      mode = 'contains';
+      history = contains.results.filter((match) => matchesPattern(normalizeAnswerForLookup(match.answer), normalizedPattern));
+      answers = buildSolveAnswers(contains.results, normalizedPattern);
+    }
+
+    const result = removeSensitiveFields({
+      clue: clueText,
+      normalized_clue: normalizedClue,
+      pattern: normalizedPattern,
+      mode,
+      count: answers.length,
+      answers,
+      history
+    });
+
+    await putCachedJson(env, cacheKey, result);
+    return successResponse(result);
+  } catch (error) {
+    console.error(`Error solving clue "${clueText}":`, error);
     return errorResponse(`Database error: ${error.message}`, 500);
   }
 }
@@ -1095,61 +1209,6 @@ async function fetchAndAddPuzzle(date, env) {
     // Save to database
     const result = await savePuzzleToDatabase(puzzleData, env);
 
-    // For today's puzzle, update today.json on GitHub
-    const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
-
-    if (date === todayStr) {
-      try {
-        // Structure the data for today.json
-        const todayJson = {
-          success: true,
-          data: {
-            puzzle: {
-              date: puzzleData.date,
-              formatted_date: puzzleData.formatted_date,
-              day_of_week: puzzleData.day_of_week,
-              title: puzzleData.title,
-              author: puzzleData.author,
-              editor: puzzleData.editor
-            },
-            clues: puzzleData.clues.map(clue => ({
-              number: clue.number,
-              clue: clue.clue || clue.clue_text,
-              answer: clue.answer,
-              direction: clue.direction
-            })),
-            across: puzzleData.clues
-              .filter(c => c.direction === 'across')
-              .map(clue => ({
-                number: clue.number,
-                clue: clue.clue || clue.clue_text,
-                answer: clue.answer,
-                direction: clue.direction
-              })),
-            down: puzzleData.clues
-              .filter(c => c.direction === 'down')
-              .map(clue => ({
-                number: clue.number,
-                clue: clue.clue || clue.clue_text,
-                answer: clue.answer,
-                direction: clue.direction
-              }))
-          },
-          timestamp: new Date().toISOString()
-        };
-
-        await updateGithubFile(
-          'public/today.json',
-          JSON.stringify(todayJson, null, 2),
-          `feat: Update today's puzzle for ${date}`,
-          env
-        );
-      } catch (e) {
-        console.error(`Failed to update today.json on GitHub: ${e.message}`);
-      }
-    }
-
     return successResponse({
       message: `Successfully added puzzle for ${date} with ${result.clue_count} clues.`,
       date: date,
@@ -1172,14 +1231,13 @@ async function fetchAndAddLatestPuzzle(env) {
 
     console.log(`Checking for latest puzzle on ${todayStr}.`);
 
-    let puzzleDataForJson;
     let message;
     let updatedDb = false;
 
     // Try to get puzzle from DB first
-    puzzleDataForJson = await getRawPuzzleDataByDate(todayStr, env);
+    let puzzleData = await getRawPuzzleDataByDate(todayStr, env);
 
-    if (puzzleDataForJson) {
+    if (puzzleData) {
       // Puzzle is already in the database.
       message = "Today's puzzle is already in the database.";
       console.log(message);
@@ -1201,64 +1259,13 @@ async function fetchAndAddLatestPuzzle(env) {
       const result = await savePuzzleToDatabase(scrapedData, env);
       updatedDb = true;
 
-      // Structure the scraped data to match the format for our JSON file
-      puzzleDataForJson = {
-        success: true,
-        data: {
-          puzzle: {
-            date: scrapedData.date,
-            formatted_date: scrapedData.formatted_date,
-            day_of_week: scrapedData.day_of_week,
-            title: scrapedData.title,
-            author: scrapedData.author,
-            editor: scrapedData.editor
-          },
-          clues: scrapedData.clues.map(clue => ({
-            number: clue.number,
-            clue: clue.clue || clue.clue_text,
-            answer: clue.answer,
-            direction: clue.direction
-          })),
-          across: scrapedData.clues
-            .filter(c => c.direction === 'across')
-            .map(clue => ({
-              number: clue.number,
-              clue: clue.clue || clue.clue_text,
-              answer: clue.answer,
-              direction: clue.direction
-            })),
-          down: scrapedData.clues
-            .filter(c => c.direction === 'down')
-            .map(clue => ({
-              number: clue.number,
-              clue: clue.clue || clue.clue_text,
-              answer: clue.answer,
-              direction: clue.direction
-            }))
-        },
-        timestamp: new Date().toISOString()
-      };
+      puzzleData = await getRawPuzzleDataByDate(todayStr, env);
 
       message = `Successfully added puzzle for ${todayStr} with ${result.clue_count} clues.`;
     }
 
-    // At this point, we must have puzzle data to commit.
-    if (!puzzleDataForJson) {
-      return errorResponse(`Could not retrieve puzzle data for ${todayStr} for GitHub update.`, 500);
-    }
-
-    // Always update today.json on GitHub
-    try {
-      await updateGithubFile(
-        'public/today.json',
-        JSON.stringify(puzzleDataForJson, null, 2),
-        `feat: Update puzzle for ${todayStr}`,
-        env
-      );
-      message += " GitHub file updated.";
-    } catch (e) {
-      console.error(`Failed to update today.json on GitHub: ${e.message}`);
-      message += ` Failed to update GitHub file: ${e.message}`;
+    if (!puzzleData) {
+      return errorResponse(`Could not retrieve puzzle data for ${todayStr}.`, 500);
     }
 
     return successResponse({
@@ -1296,23 +1303,6 @@ async function deletePuzzleByDate(date, env) {
       DELETE FROM puzzles WHERE puzzle_id = ?
     `).bind(puzzleId).run();
 
-    // If deleting today's puzzle, clear today.json
-    const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
-
-    if (date === todayStr) {
-      try {
-        await updateGithubFile(
-          'public/today.json',
-          JSON.stringify({ "cleared": true, "date": date }, null, 2),
-          `feat: Clear today's puzzle for ${date}`,
-          env
-        );
-      } catch (e) {
-        console.error(`Failed to clear today.json on GitHub: ${e.message}`);
-      }
-    }
-
     await invalidatePuzzleCaches(date, env);
     await bumpHotCacheVersion(env);
 
@@ -1328,106 +1318,9 @@ async function deletePuzzleByDate(date, env) {
   }
 }
 
-// NEW: Function to update a file on GitHub
 async function updateGithubFile(filePath, content, message, env) {
-  // Get GitHub details from environment variables
-  const repoLink = env.GITHUB_REPO_LINK;
-  const token = env.GITHUB_TOKEN;
-  const branch = 'main'; // Defaulting to main as requested
-
-  // Check if required environment variables are set
-  if (!repoLink || !token) {
-    console.error('GitHub environment variables (GITHUB_REPO_LINK, GITHUB_TOKEN) are not set. Skipping file update.');
-    return;
-  }
-
-  // Parse owner and repo from the link
-  let owner, repo;
-  try {
-    const url = new URL(repoLink);
-    // Ensure it's a github.com URL
-    if (url.hostname !== 'github.com') {
-      throw new Error('Repository link must be a valid github.com URL.');
-    }
-    const pathParts = url.pathname.split('/').filter(part => part.length > 0);
-    if (pathParts.length < 2) {
-      throw new Error('Invalid GitHub repository URL format.');
-    }
-    [owner, repo] = pathParts;
-  } catch (e) {
-    console.error(`Invalid GITHUB_REPO_LINK: ${e.message}. Expected format: https://github.com/owner/repo`);
-    return;
-  }
-
-  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`;
-
-  // Set up headers for GitHub API
-  const headers = {
-    'Authorization': `token ${token}`,
-    'User-Agent': 'Cloudflare-Worker-Crossword-Archive',
-    'Accept': 'application/vnd.github.v3+json'
-  };
-
-  try {
-    // First, try to get the file to see if it exists and get its SHA
-    let fileSha = null;
-    const getResponse = await fetch(url, { headers: headers });
-
-    if (getResponse.ok) {
-      const fileData = await getResponse.json();
-      fileSha = fileData.sha;
-    } else if (getResponse.status !== 404) {
-      // If the status is not 404, it's an actual error
-      throw new Error(`Failed to get file from GitHub: ${getResponse.status} ${await getResponse.text()}`);
-    }
-
-    // Base64 encode the content. Handles Unicode characters correctly.
-    const encodedContent = btoa(unescape(encodeURIComponent(content)));
-
-    // If the SHA is available and the new content is the same, skip updating
-    if (fileSha) {
-      const existingContentResponse = await fetch(url + '?ref=' + branch, { headers });
-      if (existingContentResponse.ok) {
-        const existingFileData = await existingContentResponse.json();
-        // The content from GitHub API is base64 encoded and has newlines.
-        if (existingFileData.content.replace(/\n/g, '') === encodedContent) {
-          console.log(`Content of ${filePath} is already up-to-date. Skipping update.`);
-          return;
-        }
-      }
-    }
-
-    // Prepare the request body for creating or updating the file
-    const body = {
-      message: message,
-      content: encodedContent,
-      branch: branch
-    };
-
-    // If we have a SHA, it means we are updating an existing file
-    if (fileSha) {
-      body.sha = fileSha;
-    }
-
-    // Make the PUT request to create or update the file
-    const putResponse = await fetch(url, {
-      method: 'PUT',
-      headers: { ...headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    });
-
-    if (!putResponse.ok) {
-      throw new Error(`Failed to update file on GitHub: ${putResponse.status} ${await putResponse.text()}`);
-    }
-
-    const responseData = await putResponse.json();
-    console.log(`Successfully updated ${filePath} on GitHub. Commit SHA: ${responseData.commit.sha}`);
-    return responseData;
-
-  } catch (error) {
-    console.error('Error updating GitHub file:', error);
-    // We log the error but don't re-throw, so it doesn't fail the entire worker operation
-  }
+  console.warn(`GitHub writebacks were removed. Skipping ${filePath}.`);
+  return null;
 }
 
 // Main event handler

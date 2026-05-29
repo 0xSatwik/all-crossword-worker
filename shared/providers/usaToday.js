@@ -219,7 +219,7 @@ export function createUsaTodayDailyProvider() {
     lookbackDays: 14,
     async fetchByDate(date) {
       const code = buildLegacyXmlDate(date);
-      const url = `http://picayune.uclick.com/comics/usaon/data/usaon${code}-data.xml`;
+      const url = `https://picayune.uclick.com/comics/usaon/data/usaon${code}-data.xml`;
       const xml = await fetchText(url);
 
       if (!xml.includes('<crossword')) {

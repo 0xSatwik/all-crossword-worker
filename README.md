@@ -6,11 +6,9 @@ Included workers:
 
 - `atlantic`
 - `guardian-cryptic`
-- `guardian-everyman`
 - `guardian-prize`
 - `guardian-quick`
 - `guardian-quiptic`
-- `guardian-speedy`
 - `guardian-weekend`
 - `latimes-daily`
 - `latimes-mini`

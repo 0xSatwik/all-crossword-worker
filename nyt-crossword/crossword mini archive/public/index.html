@@ -458,7 +458,12 @@
 
             showLoading('add-today-loading');
             try {
-                const response = await fetch(`${API_BASE_URL}/today/add/${apiKey}`);
+                const response = await fetch(`${API_BASE_URL}/today/add`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${apiKey}`
+                    }
+                });
                 const data = await response.json();
                 setJsonResult('add-today-json', data);
                 showResult('add-today-result');
@@ -487,7 +492,12 @@
 
             showLoading('add-date-loading');
             try {
-                const response = await fetch(`${API_BASE_URL}/date/add/${apiKey}?date=${date}`);
+                const response = await fetch(`${API_BASE_URL}/date/add?date=${date}`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${apiKey}`
+                    }
+                });
                 const data = await response.json();
                 setJsonResult('add-date-json', data);
                 showResult('add-date-result');

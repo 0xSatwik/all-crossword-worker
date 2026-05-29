@@ -5,12 +5,12 @@ compatibility_date = "2026-04-09"
 [[d1_databases]]
 binding = "DB"
 database_name = "latimes_mini_archive"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "2d48e3d0-5867-4485-9def-bd7c488a9d1a"
 
 [[kv_namespaces]]
 binding = "HOT_CACHE"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
-preview_id = "REPLACE_WITH_KV_PREVIEW_NAMESPACE_ID"
+id = "e4b86b14425442b4bbb382181f2a8d18"
+preview_id = "5f2e254cd83e4d38be0916f385e335c6"
 
 [triggers]
 crons = [

@@ -14,8 +14,10 @@ export default {
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     };
+
+    const authorizeWrite = () => Boolean(env.API_KEY) && request.headers.get('Authorization') === `Bearer ${env.API_KEY}`;
 
     // Handle OPTIONS requests for CORS
     if (request.method === 'OPTIONS') {
@@ -49,6 +51,16 @@ export default {
         });
       }
       return await searchByClue(clue, env, corsHeaders, mode);
+    } else if (path === '/solve') {
+      const clue = url.searchParams.get('clue');
+      const pattern = url.searchParams.get('pattern');
+      if (!clue) {
+        return new Response(JSON.stringify({ error: 'Missing search query parameter "clue"' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json', ...corsHeaders },
+        });
+      }
+      return await solveByClue(clue, pattern, env, corsHeaders);
     } else if (path === '/answer') {
       // Search for an answer
       const answer = url.searchParams.get('q');
@@ -60,20 +72,28 @@ export default {
         });
       }
       return await searchByAnswer(answer, env, corsHeaders, mode);
-    } else if (path.match(/^\/today\/add\/[^/]+$/)) {
-      // Manual update endpoint for today's puzzle with API key
-      const apiKey = path.split('/').pop();
-      if (apiKey !== env.API_KEY) {
+    } else if (path === '/today/add') {
+      if (request.method !== 'POST') {
+        return new Response(JSON.stringify({ error: 'Method not allowed. Use POST.' }), {
+          status: 405,
+          headers: { 'Content-Type': 'application/json', ...corsHeaders },
+        });
+      }
+      if (!authorizeWrite()) {
         return new Response(JSON.stringify({ error: 'Invalid API key' }), {
           status: 401,
           headers: { 'Content-Type': 'application/json', ...corsHeaders },
         });
       }
       return await fetchAndStoreTodaysPuzzle(env, corsHeaders);
-    } else if (path.match(/^\/date\/add\/[^/]+$/)) {
-      // Add puzzle for a specific date with API key
-      const apiKey = path.split('/').pop();
-      if (apiKey !== env.API_KEY) {
+    } else if (path === '/date/add') {
+      if (request.method !== 'POST') {
+        return new Response(JSON.stringify({ error: 'Method not allowed. Use POST.' }), {
+          status: 405,
+          headers: { 'Content-Type': 'application/json', ...corsHeaders },
+        });
+      }
+      if (!authorizeWrite()) {
         return new Response(JSON.stringify({ error: 'Invalid API key' }), {
           status: 401,
           headers: { 'Content-Type': 'application/json', ...corsHeaders },
@@ -89,6 +109,13 @@ export default {
       }
 
       return await fetchAndStorePuzzleByDate(date, env, corsHeaders);
+    } else if (path.startsWith('/today/add/') || path.startsWith('/date/add/')) {
+      return new Response(JSON.stringify({
+        error: 'Legacy path-token write routes were removed. Use POST write routes with Authorization: Bearer <API_KEY>.'
+      }), {
+        status: 410,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders },
+      });
     } else if (path === '/formatted') {
       // Get formatted puzzle data (like in crossword_solution.txt)
       const date = url.searchParams.get('date');
@@ -121,10 +148,11 @@ export default {
           { path: '/today', description: 'Get today\'s puzzle' },
           { path: '/date?date=YYYY-MM-DD', description: 'Get puzzle by date' },
           { path: '/clue?q=search_term&mode=exact|contains', description: 'Search for clues by exact text or keyword' },
+          { path: '/solve?clue=search_term&pattern=OPTIONAL', description: 'Solve by clue using stored mini archive matches' },
           { path: '/answer?q=search_term&mode=exact|contains', description: 'Search for answers by exact text or partial match' },
           { path: '/formatted?date=YYYY-MM-DD', description: 'Get formatted puzzle text (defaults to today if no date)' },
-          { path: '/today/add/{API_KEY}', description: 'Add today\'s puzzle (requires API key)' },
-          { path: '/date/add/{API_KEY}?date=YYYY-MM-DD', description: 'Add puzzle for specific date (requires API key)' }
+          { path: 'POST /today/add', description: 'Add today\'s puzzle (requires Authorization bearer token)' },
+          { path: 'POST /date/add?date=YYYY-MM-DD', description: 'Add puzzle for specific date (requires Authorization bearer token)' }
         ]
       }), {
         headers: { 'Content-Type': 'application/json', ...corsHeaders },
@@ -137,10 +165,12 @@ export default {
           { path: '/today', description: 'Get today\'s puzzle' },
           { path: '/date?date=YYYY-MM-DD', description: 'Get puzzle by date' },
           { path: '/clue?q=search_term&mode=exact|contains', description: 'Search for clues by exact text or keyword' },
+          { path: '/solve?clue=search_term&pattern=OPTIONAL', description: 'Solve by clue using stored mini archive matches' },
           { path: '/answer?q=search_term&mode=exact|contains', description: 'Search for answers by exact text or partial match' },
           { path: '/formatted?date=YYYY-MM-DD', description: 'Get formatted puzzle like in crossword_solution.txt' }
         ]
       }), {
+        status: 404,
         headers: { 'Content-Type': 'application/json', ...corsHeaders },
       });
     }
@@ -169,6 +199,31 @@ function normalizeAnswerForLookup(text) {
 
 function parseSearchMode(mode, defaultMode = 'contains') {
   return mode === 'exact' ? 'exact' : defaultMode;
+}
+
+function normalizePattern(pattern) {
+  return String(pattern || '')
+    .toUpperCase()
+    .replace(/[^A-Z?]/g, '')
+    .trim();
+}
+
+function matchesPattern(answerNorm, pattern) {
+  if (!pattern) {
+    return true;
+  }
+
+  if (answerNorm.length !== pattern.length) {
+    return false;
+  }
+
+  for (let index = 0; index < pattern.length; index += 1) {
+    if (pattern[index] !== '?' && pattern[index] !== answerNorm[index]) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 /**
@@ -387,7 +442,7 @@ async function searchByClue(searchTerm, env, corsHeaders = {}, mode = 'contains'
     ` : `
       SELECT date, direction, number, clue, answer
       FROM clues
-      WHERE LOWER(clue) LIKE ?
+      WHERE clue_norm LIKE ?
       ORDER BY date DESC
       LIMIT 100
     `).bind(isExact ? normalizedClue : `%${normalizedClue.replace(/[%_]/g, '')}%`);
@@ -410,6 +465,114 @@ async function searchByClue(searchTerm, env, corsHeaders = {}, mode = 'contains'
       mode,
       count: result.results.length,
       matches: result.results
+    }), {
+      headers: { 'Content-Type': 'application/json', ...corsHeaders },
+    });
+  } catch (error) {
+    return new Response(JSON.stringify({
+      success: false,
+      error: error.message
+    }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders },
+    });
+  }
+}
+
+function buildSolveAnswers(matches, pattern) {
+  const answers = new Map();
+
+  for (const match of matches) {
+    const answerNorm = normalizeAnswerForLookup(match.answer);
+    if (!answerNorm || !matchesPattern(answerNorm, pattern)) {
+      continue;
+    }
+
+    const existing = answers.get(answerNorm) || {
+      word: answerNorm,
+      score: 0,
+      frequency: 0,
+      last_seen: match.date || '',
+      sample_clue: match.clue || ''
+    };
+
+    existing.frequency += 1;
+    existing.score += 100;
+
+    if (String(match.date || '') > existing.last_seen) {
+      existing.last_seen = match.date || '';
+      existing.sample_clue = match.clue || '';
+    }
+
+    answers.set(answerNorm, existing);
+  }
+
+  return [...answers.values()].sort((left, right) => {
+    if (right.frequency !== left.frequency) {
+      return right.frequency - left.frequency;
+    }
+
+    return String(right.last_seen).localeCompare(String(left.last_seen));
+  });
+}
+
+async function solveByClue(searchTerm, pattern, env, corsHeaders = {}) {
+  try {
+    const normalizedClue = normalizeClueForLookup(searchTerm);
+    const normalizedPattern = normalizePattern(pattern);
+
+    if (!normalizedClue) {
+      return new Response(JSON.stringify({
+        success: true,
+        clue: searchTerm,
+        normalized_clue: normalizedClue,
+        pattern: normalizedPattern,
+        mode: 'exact',
+        count: 0,
+        answers: [],
+        history: []
+      }), {
+        headers: { 'Content-Type': 'application/json', ...corsHeaders },
+      });
+    }
+
+    const exactStmt = env.DB.prepare(`
+      SELECT date, direction, number, clue, answer
+      FROM clues
+      WHERE clue_norm = ?
+      ORDER BY date DESC
+      LIMIT 200
+    `).bind(normalizedClue);
+
+    const exact = await exactStmt.all();
+    let mode = 'exact';
+    let history = (exact.results || []).filter((match) => matchesPattern(normalizeAnswerForLookup(match.answer), normalizedPattern));
+    let answers = buildSolveAnswers(exact.results || [], normalizedPattern);
+
+    if (answers.length === 0) {
+      const containsStmt = env.DB.prepare(`
+        SELECT date, direction, number, clue, answer
+        FROM clues
+        WHERE clue_norm LIKE ?
+        ORDER BY date DESC
+        LIMIT 200
+      `).bind(`%${normalizedClue.replace(/[%_]/g, '')}%`);
+
+      const contains = await containsStmt.all();
+      mode = 'contains';
+      history = (contains.results || []).filter((match) => matchesPattern(normalizeAnswerForLookup(match.answer), normalizedPattern));
+      answers = buildSolveAnswers(contains.results || [], normalizedPattern);
+    }
+
+    return new Response(JSON.stringify({
+      success: true,
+      clue: searchTerm,
+      normalized_clue: normalizedClue,
+      pattern: normalizedPattern,
+      mode,
+      count: answers.length,
+      answers,
+      history
     }), {
       headers: { 'Content-Type': 'application/json', ...corsHeaders },
     });

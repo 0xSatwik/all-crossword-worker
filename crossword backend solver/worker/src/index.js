@@ -441,6 +441,20 @@ async function buildSolvePayload(clue, pattern, env) {
     mini: miniMatches,
   };
 
+  if (internalAnswers.length > 0) {
+    return {
+      success: true,
+      clue,
+      normalized_clue: normalizedClue,
+      pattern: normalizedPattern,
+      source: 'internal',
+      used_fallback: false,
+      answers: internalAnswers,
+      history,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
   try {
     const nexusAnswers = await fetchCrosswordNexusAnswers(clue, normalizedPattern);
     if (nexusAnswers.length > 0) {
@@ -477,20 +491,6 @@ async function buildSolvePayload(clue, pattern, env) {
     }
   } catch (error) {
     console.error('Datamuse lookup failed:', error);
-  }
-
-  if (internalAnswers.length > 0) {
-    return {
-      success: true,
-      clue,
-      normalized_clue: normalizedClue,
-      pattern: normalizedPattern,
-      source: 'internal',
-      used_fallback: true,
-      answers: internalAnswers,
-      history,
-      timestamp: new Date().toISOString(),
-    };
   }
 
   return {

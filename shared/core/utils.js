@@ -65,7 +65,7 @@ export function getDayOfWeek(dateStr) {
 }
 
 export function repairMojibake(text) {
-  if (!text || !/[Ãâ]/.test(text)) {
+  if (!text || !/[ÃÂâ]/.test(text)) {
     return text || '';
   }
 

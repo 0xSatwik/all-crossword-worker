@@ -38,43 +38,35 @@ These endpoints do not require an API key and are used to retrieve puzzle data.
 
 ### Protected Endpoints (Write/Admin)
 
-These endpoints require a valid `API_KEY`. You can provide the key as the last part of the URL path.
+These endpoints require `Authorization: Bearer <API_TOKEN>`.
 
-#### Add Today's Puzzle (Simple)
-- **URL**: `GET /today/add/{apiKey}`
-- **Description**: Scrapes today's puzzle and adds it to the database and updates `today.json` on GitHub.
-- **Example**: `/today/add/your-secret-key`
-
-#### Add Puzzle by Date (Simple)
-- **URL**: `GET /date/add/{apiKey}?date={date}`
-- **Description**: Scrapes a puzzle for a specific date and adds it to the database.
-- **Example**: `/date/add/your-secret-key?date=2024-01-19`
-
-#### Add/Update Puzzle (Detailed)
-- **URL**: `GET /api/add/{date}/{apiKey}`
-- **Description**: Adds or updates a puzzle for a specific date.
-- **Example**: `/api/add/2024-01-19/your-secret-key`
+#### Add or Update Puzzle by Date
+- **URL**: `POST /api/add/{date}`
+- **Description**: Scrapes a puzzle for a specific date and stores it.
 
 #### Update Latest Puzzle
-- **URL**: `GET /api/update/latest/{apiKey}`
-- **Description**: Checks for and adds the latest available puzzle.
-- **Example**: `/api/update/latest/your-secret-key`
+- **URL**: `POST /api/update/latest`
+- **Description**: Checks for and stores the latest available puzzle.
 
-#### Delete PuzzleData
-- **URL**: `GET /api/delete/{date}/{apiKey}`
-- **Description**: Deletes puzzle data for a specific date from the database.
-- **Example**: `/api/delete/2024-01-19/your-secret-key`
+#### Delete Puzzle Data
+- **URL**: `POST /api/delete/{date}`
+- **Description**: Deletes stored puzzle data for a specific date.
 
-#### Trigger GitHub Commit
-- **URL**: `GET /today/commit/{apiKey}`
-- **Description**: Manually triggers an update of the `today.json` file on your configured GitHub repository.
-- **Example**: `/today/commit/your-secret-key`
+#### Solve by Clue
+- **URL**: `GET /api/solve?clue={text}&pattern={optionalPattern}`
+- **Description**: Searches stored archive data and returns ranked answer candidates plus clue history.
+
+#### Legacy Removed Routes
+- `/today/add/{apiKey}`
+- `/date/add/{apiKey}`
+- `/today/commit/{apiKey}`
+- These now return `410 Gone`.
 
 ---
 
 ## Configuration
 
-The API key is set via the `API_TOKEN` environment variable in Cloudflare.
+The write token is set via the `API_TOKEN` environment variable or secret in Cloudflare.
 
 ```toml
 [vars]
@@ -84,8 +76,10 @@ API_TOKEN = "your-secret-token-here"
 ## Deployment
 
 1.  **Create D1 Database**: `npx wrangler d1 create crossword_archive`
-2.  **Apply Schema**: `npx wrangler d1 execute crossword_archive --file=migrations/0000_initial_migration.sql`
+2.  **Apply Schema**: run the project migrations with Wrangler
 3.  **Deploy**: `npm run deploy`
+
+See `api_endpoints_detailed.txt` for the current endpoint reference.
 
 ## License
 

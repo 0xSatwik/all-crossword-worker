@@ -1,0 +1,40 @@
+Crossword Backend Solver API
+============================
+
+Base URL
+- Production: https://crossword-solver-api.mitomat.workers.dev
+
+Purpose
+- This worker is the centralized solver API.
+- It checks internal crossword archive matches first.
+- If needed, it falls back to CrosswordNexus and then Datamuse.
+
+Public Endpoints
+
+1. GET /
+- Purpose: root docs and health check.
+
+2. GET /solve?clue=TEXT&pattern=OPTIONAL
+- Purpose: solve a crossword clue.
+- Required query:
+- `clue`: clue text
+- Optional query:
+- `pattern`: answer pattern using `?` wildcards
+- Response notes:
+- `internal_answers`: answers from your own archive sources
+- `external_answers`: fallback answers from external providers
+- `history`: clue history when internal matches exist
+
+3. GET /?clue=TEXT&pattern=OPTIONAL
+- Purpose: legacy compatibility route.
+- Notes:
+- This still works, but `/solve` is the preferred route now.
+
+Common Status Codes
+- `200`: request succeeded
+- `400`: missing clue query
+- `404`: unknown route
+
+Example Calls
+- `GET https://crossword-solver-api.mitomat.workers.dev/solve?clue=Cookie+brand`
+- `GET https://crossword-solver-api.mitomat.workers.dev/solve?clue=Cookie+brand&pattern=O?E?`

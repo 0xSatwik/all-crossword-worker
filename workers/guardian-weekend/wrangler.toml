@@ -5,12 +5,12 @@ compatibility_date = "2026-04-09"
 [[d1_databases]]
 binding = "DB"
 database_name = "guardian_weekend_archive"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "8936d37e-6766-4a6d-a855-be5942e03f06"
 
 [[kv_namespaces]]
 binding = "HOT_CACHE"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
-preview_id = "REPLACE_WITH_KV_PREVIEW_NAMESPACE_ID"
+id = "32a0fe8584bb468e82118bdbf89f4b50"
+preview_id = "901229f8a1154d908796f1b809028da5"
 
 [triggers]
 crons = [

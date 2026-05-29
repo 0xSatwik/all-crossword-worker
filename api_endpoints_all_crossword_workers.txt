@@ -1,0 +1,98 @@
+All Crossword Archive Workers
+=============================
+
+These workers share the same root runtime and the same endpoint surface.
+
+Live Worker URLs
+- Atlantic: https://atlantic-crossword-worker.atlantic-b07.workers.dev
+- Guardian Cryptic: https://guardian-cryptic-worker.cryptic-abb.workers.dev
+- Guardian Prize: https://guardian-prize-worker.prize.workers.dev
+- Guardian Quick: https://guardian-quick-worker.gurdianquick.workers.dev
+- Guardian Quiptic: https://guardian-quiptic-worker.quiptic.workers.dev
+- Guardian Weekend: https://guardian-weekend-worker.weekendapi.workers.dev
+- LA Times Daily: https://latimes-daily-worker.latimes.workers.dev
+- LA Times Mini: https://latimes-mini-worker.latimesmini.workers.dev
+- USA Today Daily: https://usa-today-daily-worker.everyman-5b4.workers.dev
+- USA Today Quick: https://usa-today-quick-worker.everyman-5b4.workers.dev
+- Washington Post Daily: https://washington-post-daily-worker.gspeedy.workers.dev
+
+Not Live Yet
+- Washington Post Mini: Cloudflare credentials in `cloudflare.txt` are still placeholders.
+- Washington Post Sunday: Cloudflare credentials in `cloudflare.txt` are still placeholders.
+
+Auth
+- Read endpoints are public.
+- Write endpoints require `Authorization: Bearer <API_TOKEN>`.
+- Legacy token-in-path writes are removed.
+
+Shared Public Endpoints
+
+1. GET /
+- Purpose: root docs and health check.
+
+2. GET /api/puzzle/latest
+- Purpose: fetch the latest stored puzzle for that source.
+
+3. GET /api/puzzle/{date}
+- Purpose: fetch one stored puzzle by date.
+- Supported date forms:
+- `YYYY-MM-DD`
+- `MM/DD/YYYY`
+- `today`
+
+4. GET /api/clues/{date}
+- Purpose: fetch clue rows only for one stored date.
+
+5. GET /api/search/answer?q=TEXT&mode=exact|contains
+- Purpose: search stored answer matches.
+- Default mode: `exact`
+
+6. GET /api/search/clue?q=TEXT&mode=exact|contains
+- Purpose: search stored clue matches.
+- Default mode: `contains`
+
+7. GET /api/solve?clue=TEXT&pattern=OPTIONAL
+- Purpose: solver-style lookup from the worker's own stored archive.
+- Required query:
+- `clue`: clue text
+- Optional query:
+- `pattern`: answer pattern using `?` wildcards
+- Response shape:
+- `answers`: ranked candidate answers
+- `history`: matching archive rows
+
+8. GET /api/related/answer?q=TEXT
+- Purpose: fetch all related clue appearances for one exact answer.
+
+Shared Protected Endpoints
+
+9. POST /api/add/{date}
+- Purpose: fetch and store one exact puzzle date.
+- Required header:
+- `Authorization: Bearer <API_TOKEN>`
+
+10. POST /api/update/latest
+- Purpose: fetch and store the latest available puzzle from that source.
+- Required header:
+- `Authorization: Bearer <API_TOKEN>`
+
+11. POST /api/delete/{date}
+- Purpose: delete one stored puzzle date and its clues.
+- Required header:
+- `Authorization: Bearer <API_TOKEN>`
+
+Common Status Codes
+- `200`: request succeeded
+- `400`: invalid date or missing query value
+- `401`: missing or invalid bearer token on write routes
+- `404`: not found
+- `405`: wrong HTTP method on write routes
+
+Example Calls
+- Atlantic latest:
+  `GET https://atlantic-crossword-worker.atlantic-b07.workers.dev/api/puzzle/latest`
+- Guardian Quick solve:
+  `GET https://guardian-quick-worker.gurdianquick.workers.dev/api/solve?clue=Cookie+brand`
+- USA Today Quick update:
+  `POST https://usa-today-quick-worker.everyman-5b4.workers.dev/api/update/latest`
+  Header: `Authorization: Bearer <API_TOKEN>`

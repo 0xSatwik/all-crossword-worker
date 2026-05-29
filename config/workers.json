@@ -17,15 +17,6 @@
       "databaseName": "guardian_cryptic_archive"
     },
     {
-      "slug": "guardian-everyman",
-      "name": "Guardian Everyman",
-      "family": "guardian",
-      "seriesTag": "everyman",
-      "title": "Guardian Everyman Crossword",
-      "workerName": "guardian-everyman-worker",
-      "databaseName": "guardian_everyman_archive"
-    },
-    {
       "slug": "guardian-prize",
       "name": "Guardian Prize",
       "family": "guardian",
@@ -51,15 +42,6 @@
       "title": "Guardian Quiptic Crossword",
       "workerName": "guardian-quiptic-worker",
       "databaseName": "guardian_quiptic_archive"
-    },
-    {
-      "slug": "guardian-speedy",
-      "name": "Guardian Speedy",
-      "family": "guardian",
-      "seriesTag": "speedy",
-      "title": "Guardian Speedy Crossword",
-      "workerName": "guardian-speedy-worker",
-      "databaseName": "guardian_speedy_archive"
     },
     {
       "slug": "guardian-weekend",

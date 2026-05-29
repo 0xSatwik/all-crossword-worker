@@ -5,12 +5,12 @@ compatibility_date = "2026-04-09"
 [[d1_databases]]
 binding = "DB"
 database_name = "atlantic_crossword_archive"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "9d743b22-4838-4025-b350-49a2faf570ca"
 
 [[kv_namespaces]]
 binding = "HOT_CACHE"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
-preview_id = "REPLACE_WITH_KV_PREVIEW_NAMESPACE_ID"
+id = "8210f89487204804bdb29da15e7b4f60"
+preview_id = "fcfd11b7949948359540542d78b58a12"
 
 [triggers]
 crons = [

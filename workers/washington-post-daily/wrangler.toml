@@ -5,12 +5,12 @@ compatibility_date = "2026-04-09"
 [[d1_databases]]
 binding = "DB"
 database_name = "washington_post_daily_archive"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "69e16ac4-c357-409b-b780-4451d2368e8c"
 
 [[kv_namespaces]]
 binding = "HOT_CACHE"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
-preview_id = "REPLACE_WITH_KV_PREVIEW_NAMESPACE_ID"
+id = "35e34e210d6545028612dde8c235b2bd"
+preview_id = "ef725cc4b6d4440c9b81f6c2d39aa22b"
 
 [triggers]
 crons = [

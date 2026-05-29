@@ -5,12 +5,12 @@ compatibility_date = "2026-04-09"
 [[d1_databases]]
 binding = "DB"
 database_name = "guardian_quiptic_archive"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "8bcf13e9-64f8-49a3-ae73-af55ae889520"
 
 [[kv_namespaces]]
 binding = "HOT_CACHE"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
-preview_id = "REPLACE_WITH_KV_PREVIEW_NAMESPACE_ID"
+id = "ad9980bc97864b78bd5c1fc3755290a7"
+preview_id = "487ba649e81a4d5b80f28fdc2fb45b65"
 
 [triggers]
 crons = [

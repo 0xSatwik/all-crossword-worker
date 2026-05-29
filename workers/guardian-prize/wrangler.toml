@@ -5,12 +5,12 @@ compatibility_date = "2026-04-09"
 [[d1_databases]]
 binding = "DB"
 database_name = "guardian_prize_archive"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "5fb5ac31-60a1-460c-b7ac-f0529c667c61"
 
 [[kv_namespaces]]
 binding = "HOT_CACHE"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
-preview_id = "REPLACE_WITH_KV_PREVIEW_NAMESPACE_ID"
+id = "8c961c7c3ac94893b1e5c08cb8eeb21d"
+preview_id = "77ad77b921184feda85cdcd53ac93b95"
 
 [triggers]
 crons = [

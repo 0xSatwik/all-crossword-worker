@@ -9,7 +9,7 @@ Shared migration files:
 
 Optional secret for all workers:
 
-- `API_TOKEN`: protects write endpoints such as `/api/add/...`, `/api/update/latest/...`, and `/api/delete/...`.
+- `API_TOKEN`: required for `POST /api/add/...`, `POST /api/update/latest`, and `POST /api/delete/...`.
 - `GUARDIAN_API_KEY`: optional for Guardian workers. If omitted, the public `test` key is used.
 
 ## Atlantic Crossword
@@ -43,24 +43,6 @@ npx wrangler secret put API_TOKEN
 # npx wrangler secret put GUARDIAN_API_KEY
 npx wrangler d1 execute guardian_cryptic_archive --file=../../shared/migrations/0000_initial_migration.sql --remote
 npx wrangler d1 execute guardian_cryptic_archive --file=../../shared/migrations/0001_normalized_lookup_columns.sql --remote
-npx wrangler deploy
-```
-
-## Guardian Everyman
-
-```powershell
-cd workers/guardian-everyman
-npx wrangler d1 create guardian_everyman_archive
-# Copy the returned database_id into wrangler.toml
-npx wrangler kv namespace create HOT_CACHE
-# Copy the returned id into wrangler.toml as HOT_CACHE.id
-npx wrangler kv namespace create HOT_CACHE --preview
-# Copy the returned id into wrangler.toml as HOT_CACHE.preview_id
-npx wrangler secret put API_TOKEN
-# Optional: only if you want your own Guardian API key
-# npx wrangler secret put GUARDIAN_API_KEY
-npx wrangler d1 execute guardian_everyman_archive --file=../../shared/migrations/0000_initial_migration.sql --remote
-npx wrangler d1 execute guardian_everyman_archive --file=../../shared/migrations/0001_normalized_lookup_columns.sql --remote
 npx wrangler deploy
 ```
 
@@ -115,24 +97,6 @@ npx wrangler secret put API_TOKEN
 # npx wrangler secret put GUARDIAN_API_KEY
 npx wrangler d1 execute guardian_quiptic_archive --file=../../shared/migrations/0000_initial_migration.sql --remote
 npx wrangler d1 execute guardian_quiptic_archive --file=../../shared/migrations/0001_normalized_lookup_columns.sql --remote
-npx wrangler deploy
-```
-
-## Guardian Speedy
-
-```powershell
-cd workers/guardian-speedy
-npx wrangler d1 create guardian_speedy_archive
-# Copy the returned database_id into wrangler.toml
-npx wrangler kv namespace create HOT_CACHE
-# Copy the returned id into wrangler.toml as HOT_CACHE.id
-npx wrangler kv namespace create HOT_CACHE --preview
-# Copy the returned id into wrangler.toml as HOT_CACHE.preview_id
-npx wrangler secret put API_TOKEN
-# Optional: only if you want your own Guardian API key
-# npx wrangler secret put GUARDIAN_API_KEY
-npx wrangler d1 execute guardian_speedy_archive --file=../../shared/migrations/0000_initial_migration.sql --remote
-npx wrangler d1 execute guardian_speedy_archive --file=../../shared/migrations/0001_normalized_lookup_columns.sql --remote
 npx wrangler deploy
 ```
 
@@ -199,22 +163,6 @@ npx wrangler kv namespace create HOT_CACHE --preview
 npx wrangler secret put API_TOKEN
 npx wrangler d1 execute usa_today_daily_archive --file=../../shared/migrations/0000_initial_migration.sql --remote
 npx wrangler d1 execute usa_today_daily_archive --file=../../shared/migrations/0001_normalized_lookup_columns.sql --remote
-npx wrangler deploy
-```
-
-## USA Today Quick
-
-```powershell
-cd workers/usa-today-quick
-npx wrangler d1 create usa_today_quick_archive
-# Copy the returned database_id into wrangler.toml
-npx wrangler kv namespace create HOT_CACHE
-# Copy the returned id into wrangler.toml as HOT_CACHE.id
-npx wrangler kv namespace create HOT_CACHE --preview
-# Copy the returned id into wrangler.toml as HOT_CACHE.preview_id
-npx wrangler secret put API_TOKEN
-npx wrangler d1 execute usa_today_quick_archive --file=../../shared/migrations/0000_initial_migration.sql --remote
-npx wrangler d1 execute usa_today_quick_archive --file=../../shared/migrations/0001_normalized_lookup_columns.sql --remote
 npx wrangler deploy
 ```
 

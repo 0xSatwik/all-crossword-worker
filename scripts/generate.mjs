@@ -9,6 +9,21 @@ const workersDir = path.join(rootDir, 'workers');
 const setupPath = path.join(rootDir, 'SETUP-COMMANDS.md');
 
 const config = JSON.parse(await fs.readFile(configPath, 'utf8'));
+const cfProfileKeys = new Map([
+  ['atlantic', 'atlantic'],
+  ['guardian-cryptic', 'gc'],
+  ['guardian-prize', 'gp'],
+  ['guardian-quick', 'gq'],
+  ['guardian-quiptic', 'gquip'],
+  ['guardian-weekend', 'gw'],
+  ['latimes-daily', 'law'],
+  ['latimes-mini', 'lam'],
+  ['usa-today-daily', 'utd'],
+  ['usa-today-quick', 'utq'],
+  ['washington-post-daily', 'wpd'],
+  ['washington-post-mini', 'wpm'],
+  ['washington-post-sunday', 'wps']
+]);
 
 function entrySource(worker) {
   switch (worker.family) {
@@ -72,7 +87,7 @@ function setupCommands(workers) {
     '',
     'Optional secret for all workers:',
     '',
-    '- `API_TOKEN`: protects write endpoints such as `/api/add/...`, `/api/update/latest/...`, and `/api/delete/...`.',
+    '- `API_TOKEN`: required for `POST /api/add/...`, `POST /api/update/latest`, and `POST /api/delete/...`.',
     '- `GUARDIAN_API_KEY`: optional for Guardian workers. If omitted, the public `test` key is used.',
     ''
   ];
@@ -111,6 +126,7 @@ for (const worker of config.workers) {
   await fs.mkdir(srcDir, { recursive: true });
   await fs.writeFile(path.join(srcDir, 'index.js'), entrySource(worker));
   await fs.writeFile(path.join(projectDir, 'wrangler.toml'), wranglerToml(worker));
+  await fs.writeFile(path.join(projectDir, '.cf-profile'), `${cfProfileKeys.get(worker.slug) || ''}\n`);
 }
 
 await fs.writeFile(setupPath, setupCommands(config.workers));

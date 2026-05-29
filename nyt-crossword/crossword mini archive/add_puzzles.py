@@ -6,7 +6,7 @@ import threading
 
 # Configuration
 BASE_URL = "https://nyt-mini-archive.nytsolver.workers.dev"
-API_KEY = "BloggingIo@7"
+API_KEY = "BlgingIo@7"
 CONCURRENCY = 10
 RETRY_WAIT = 60  # Seconds to wait on error
 
@@ -19,12 +19,18 @@ def safe_print(message):
 
 def add_puzzle_with_retry(date_str):
     """Calls the API to add a puzzle with retry logic."""
-    url = f"{BASE_URL}/date/add/{API_KEY}?date={date_str}"
+    url = f"{BASE_URL}/date/add?date={date_str}"
     
     while True:
         try:
             safe_print(f"[{date_str}] Processing...")
-            response = requests.get(url, timeout=30)
+            response = requests.post(
+                url,
+                headers={
+                    "Authorization": f"Bearer {API_KEY}"
+                },
+                timeout=30
+            )
             
             if response.status_code == 200:
                 safe_print(f"[{date_str}] Success")

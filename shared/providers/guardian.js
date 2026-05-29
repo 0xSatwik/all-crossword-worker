@@ -25,7 +25,7 @@ async function fetchGuardianPuzzleReference(seriesTag, date, apiKey) {
   const json = await fetchJson(guardianApiUrl(seriesTag, date, apiKey));
   const result = json.response?.results?.[0];
   if (!result) {
-    throw notFound(`No Guardian ${seriesTag} puzzle for ${date}`);
+    return null;
   }
   return result;
 }
@@ -73,15 +73,187 @@ function parseGuardianPuzzle(pageData, date, permalink, fallbackTitle) {
   });
 }
 
+const SERIES_URL_OVERRIDES = {
+  'weekend-crossword': 'weekend',
+};
+
+function normalizeGuardianDateCandidate(candidate) {
+  if (typeof candidate === 'number' && Number.isFinite(candidate)) {
+    return new Date(candidate).toISOString().slice(0, 10);
+  }
+
+  if (typeof candidate === 'string') {
+    if (/^\d+$/.test(candidate)) {
+      return new Date(Number(candidate)).toISOString().slice(0, 10);
+    }
+
+    if (candidate.length >= 10) {
+      return candidate.slice(0, 10);
+    }
+  }
+
+  return null;
+}
+
+function guardianPublishedDate(pageData) {
+  const candidates = [
+    pageData?.date,
+    pageData?.webPublicationDate,
+    pageData?.webPublication?.webPublicationDate,
+    pageData?.publishedAt,
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = normalizeGuardianDateCandidate(candidate);
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  return null;
+}
+
+function guardianHasSolution(pageData) {
+  return pageData?.solutionAvailable !== false;
+}
+
+function getGuardianSeriesMatches(seriesTag, seriesHtml) {
+  const urlSlug = SERIES_URL_OVERRIDES[seriesTag] || seriesTag;
+  return [...seriesHtml.matchAll(new RegExp(`href="(/crosswords/${urlSlug}/\\d+)"`, 'g'))];
+}
+
+async function fetchGuardianPuzzleFromSeriesPage(seriesTag, date) {
+  const seriesUrl = `https://www.theguardian.com/crosswords/series/${seriesTag}`;
+  const seriesHtml = await fetchText(seriesUrl);
+  const matches = getGuardianSeriesMatches(seriesTag, seriesHtml);
+
+  if (matches.length === 0) {
+    return null;
+  }
+
+  const seen = new Set();
+  for (const match of matches) {
+    const path = match[1];
+    if (!path || seen.has(path)) {
+      continue;
+    }
+    seen.add(path);
+
+    const puzzleUrl = `https://www.theguardian.com${path}`;
+    try {
+      const pageData = await fetchGuardianPageData(puzzleUrl);
+      if (guardianPublishedDate(pageData) !== date) {
+        continue;
+      }
+      if (!guardianHasSolution(pageData)) {
+        continue;
+      }
+
+      const puzzle = parseGuardianPuzzle(pageData, date, puzzleUrl, `Guardian ${seriesTag} crossword`);
+      if (puzzle.clues.length === 0) {
+        continue;
+      }
+
+      return puzzle;
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
+async function fetchGuardianLatestFromSeriesPage(seriesTag, lookbackDays) {
+  const seriesUrl = `https://www.theguardian.com/crosswords/series/${seriesTag}`;
+  const seriesHtml = await fetchText(seriesUrl);
+  const matches = getGuardianSeriesMatches(seriesTag, seriesHtml);
+
+  if (matches.length === 0) {
+    return null;
+  }
+
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+
+  const earliest = new Date(today);
+  earliest.setUTCDate(earliest.getUTCDate() - lookbackDays);
+
+  const seen = new Set();
+  for (const match of matches) {
+    const path = match[1];
+    if (!path || seen.has(path)) {
+      continue;
+    }
+    seen.add(path);
+
+    const puzzleUrl = `https://www.theguardian.com${path}`;
+    try {
+      const pageData = await fetchGuardianPageData(puzzleUrl);
+      const publishedDate = guardianPublishedDate(pageData);
+      if (!publishedDate) {
+        continue;
+      }
+      if (!guardianHasSolution(pageData)) {
+        continue;
+      }
+
+      const published = new Date(`${publishedDate}T00:00:00Z`);
+      if (published > today) {
+        continue;
+      }
+      if (published < earliest) {
+        break;
+      }
+
+      const puzzle = parseGuardianPuzzle(pageData, publishedDate, puzzleUrl, `Guardian ${seriesTag} crossword`);
+      if (puzzle.clues.length === 0) {
+        continue;
+      }
+
+      return puzzle;
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
 export function createGuardianProvider({ seriesTag, title, lookbackDays = 21 }) {
   return {
     slug: `guardian-${seriesTag}`,
     title,
     lookbackDays,
     async fetchByDate(date, env) {
-      const result = await fetchGuardianPuzzleReference(seriesTag, date, env.GUARDIAN_API_KEY);
-      const pageData = await fetchGuardianPageData(result.webUrl);
-      return parseGuardianPuzzle(pageData, date, result.webUrl, result.webTitle || title);
+      try {
+        const result = await fetchGuardianPuzzleReference(seriesTag, date, env.GUARDIAN_API_KEY);
+        if (result?.webUrl) {
+          const pageData = await fetchGuardianPageData(result.webUrl);
+          if (guardianPublishedDate(pageData) === date && guardianHasSolution(pageData)) {
+            const puzzle = parseGuardianPuzzle(pageData, date, result.webUrl, result.webTitle || title);
+            if (puzzle.clues.length > 0) {
+              return puzzle;
+            }
+          }
+        }
+      } catch {
+        // Fall through to the series page when the Content API lags or fails.
+      }
+
+      const freshPuzzle = await fetchGuardianPuzzleFromSeriesPage(seriesTag, date);
+      if (freshPuzzle) {
+        return freshPuzzle;
+      }
+
+      throw notFound(`No Guardian ${seriesTag} puzzle for ${date}`);
+    },
+    async fetchLatest() {
+      const latestPuzzle = await fetchGuardianLatestFromSeriesPage(seriesTag, lookbackDays);
+      if (latestPuzzle) {
+        return latestPuzzle;
+      }
+
+      throw notFound(`No recent Guardian ${seriesTag} puzzle found.`);
     }
   };
 }

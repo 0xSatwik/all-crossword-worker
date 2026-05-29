@@ -1,0 +1,88 @@
+NYT Crossword Archive Worker API
+================================
+
+Base URL
+- Production: https://crossword-archive-worker.mitomat.workers.dev
+
+Auth
+- Read endpoints are public.
+- Write endpoints require `Authorization: Bearer <API_TOKEN>`.
+- Legacy write routes with tokens in the URL path return `410 Gone`.
+
+Public Endpoints
+
+1. GET /
+- Purpose: root docs and health check.
+
+2. GET /api/puzzle/latest
+- Purpose: fetch the latest stored NYT daily puzzle.
+
+3. GET /api/puzzle/{date}
+- Purpose: fetch one stored puzzle by date.
+- Supported date forms:
+- `YYYY-MM-DD`
+- `MM/DD/YYYY`
+- `today`
+
+4. GET /api/clues/{date}
+- Purpose: fetch clue rows only for one date.
+
+5. GET /api/search/answer?q=TEXT&mode=exact|contains
+- Purpose: search stored answers.
+- Default mode: `exact`
+
+6. GET /api/search/clue?q=TEXT&mode=exact|contains
+- Purpose: search stored clue text.
+- Default mode: `contains`
+
+7. GET /api/solve?clue=TEXT&pattern=OPTIONAL
+- Purpose: solver-style clue lookup from the stored NYT daily archive.
+- Required query:
+- `clue`: clue text
+- Optional query:
+- `pattern`: answer pattern using `?` wildcards
+- Response shape:
+- `answers`: ranked candidate answers
+- `history`: matching stored clue rows
+
+8. GET /api/related/answer?q=TEXT
+- Purpose: fetch every stored clue appearance for one exact answer.
+
+Protected Endpoints
+
+9. POST /api/add/{date}
+- Purpose: fetch and store one NYT daily puzzle by date.
+- Required header:
+- `Authorization: Bearer <API_TOKEN>`
+
+10. POST /api/update/latest
+- Purpose: fetch and store the latest available NYT daily puzzle.
+- Required header:
+- `Authorization: Bearer <API_TOKEN>`
+
+11. POST /api/delete/{date}
+- Purpose: delete one stored puzzle date and its clue rows.
+- Required header:
+- `Authorization: Bearer <API_TOKEN>`
+
+Legacy Removed Routes
+- `/today/add/<token>`
+- `/date/add/<token>`
+- `/today/commit/<token>`
+
+Common Status Codes
+- `200`: request succeeded
+- `400`: invalid date or missing query value
+- `401`: missing or invalid bearer token on write routes
+- `404`: not found
+- `405`: wrong HTTP method on write routes
+- `410`: legacy write route removed
+
+Examples
+- Latest puzzle:
+  `GET https://crossword-archive-worker.mitomat.workers.dev/api/puzzle/latest`
+- Solve clue:
+  `GET https://crossword-archive-worker.mitomat.workers.dev/api/solve?clue=Cookie+brand`
+- Update latest:
+  `POST https://crossword-archive-worker.mitomat.workers.dev/api/update/latest`
+  Header: `Authorization: Bearer <API_TOKEN>`

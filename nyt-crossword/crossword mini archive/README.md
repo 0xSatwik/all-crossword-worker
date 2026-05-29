@@ -80,8 +80,12 @@ crons = ["0 22 * * * America/New_York"] # Run daily at 10 PM Eastern Time
 
 ### Protected Endpoints (Require API Key)
 
-- **GET /today/add/YOUR_API_KEY**: Manually trigger fetching and storing today's puzzle
-- **GET /date/add/YOUR_API_KEY?date=YYYY-MM-DD**: Fetch and store puzzle for a specific date
+- **POST /today/add** with `Authorization: Bearer <API_KEY>`: Fetch and store the latest puzzle
+- **POST /date/add?date=YYYY-MM-DD** with `Authorization: Bearer <API_KEY>`: Fetch and store one specific date
+
+### Solver Endpoint
+
+- **GET /solve?clue=TEXT&pattern=OPTIONAL**: Search stored mini archive data and return ranked answer candidates
 
 ## Web Interface
 
@@ -93,6 +97,8 @@ To use the web interface:
 2. Update the `API_BASE_URL` variable in the script to point to your Cloudflare Worker URL
 3. Use the date selector or "Today's Puzzle" button to load puzzles
 4. Click on clues to reveal answers or use the "Reveal All Answers" button
+
+See `api_endpoints.txt` for the current endpoint reference.
 
 ## Notes on NYT API Access
 

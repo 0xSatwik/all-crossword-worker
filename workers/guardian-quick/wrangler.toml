@@ -5,12 +5,12 @@ compatibility_date = "2026-04-09"
 [[d1_databases]]
 binding = "DB"
 database_name = "guardian_quick_archive"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "913a1452-1769-495f-b2ce-8bdf5d4f41d4"
 
 [[kv_namespaces]]
 binding = "HOT_CACHE"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
-preview_id = "REPLACE_WITH_KV_PREVIEW_NAMESPACE_ID"
+id = "b28190ad75c3423ba0ec3380a6a42279"
+preview_id = "2041a7306e4143ae8d6df938be454433"
 
 [triggers]
 crons = [

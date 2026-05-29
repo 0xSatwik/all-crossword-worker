@@ -1,63 +1,90 @@
-NYT MINI CROSSWORD ARCHIVE API DOCUMENTATION
+NYT Mini Crossword Archive API
+================================
 
-Base URL: https://nyt-mini-archive.nytsolver.workers.dev
+Base URL
+- Production: https://nyt-mini-archive.nytsolver.workers.dev
 
-================================================================
-PUBLIC ENDPOINTS (GET)
-================================================================
+Auth
+- Read endpoints are public.
+- Write endpoints require `Authorization: Bearer <API_KEY>`.
+- Legacy path-token routes such as `/today/add/<key>` and `/date/add/<key>` return `410 Gone`.
 
-1. Get Today's Puzzle
-   URL: /today
-   Description: Returns the most recent puzzle stored in the database.
-   Example: https://nyt-mini-archive.nytsolver.workers.dev/today
+Public Endpoints
 
-2. Get Puzzle by Date
-   URL: /date?date=YYYY-MM-DD
-   Description: Returns the structured puzzle data for a specific date.
-   Example: https://nyt-mini-archive.nytsolver.workers.dev/date?date=2026-01-01
+1. GET /
+- Purpose: root docs and quick health check.
+- Response: JSON with the available endpoints.
 
-3. Get Formatted Text
-   URL: /formatted?date=YYYY-MM-DD
-   Description: Returns the clues and answers in a plain text format (ACROSS/DOWN blocks).
-   Example: https://nyt-mini-archive.nytsolver.workers.dev/formatted?date=2026-01-01
+2. GET /today
+- Purpose: fetch the latest stored mini puzzle.
+- Response: puzzle data for the latest available stored date.
 
-4. List Available Dates (Pagination)
-   URL: /list?page=1&limit=50
-   Description: Returns a paginated list of all dates available in the archive, sorted from newest to oldest. 
-   Parameters:
-     - page: Page number (default: 1)
-     - limit: Number of items per page (default: 50, max: 100)
-   Example: https://nyt-mini-archive.nytsolver.workers.dev/list?page=1&limit=50
+3. GET /date?date=YYYY-MM-DD
+- Purpose: fetch one stored puzzle by date.
+- Required query:
+- `date`: exact date like `2026-05-30`
 
-5. Search by Clue
-   URL: /clue?q=search_term
-   Description: Searches all archived puzzles for clues matching the query.
-   Example: https://nyt-mini-archive.nytsolver.workers.dev/clue?q=music
+4. GET /formatted
+- Purpose: fetch formatted crossword text for the latest stored puzzle.
 
-6. Search by Answer
-   URL: /answer?q=search_term
-   Description: Searches all archived puzzles for answers matching the query.
-   Example: https://nyt-mini-archive.nytsolver.workers.dev/answer?q=PIANO
+5. GET /formatted?date=YYYY-MM-DD
+- Purpose: fetch formatted crossword text for one stored date.
 
-================================================================
-ADMIN / UPDATE ENDPOINTS (GET)
-================================================================
-Note: These require your secret API_KEY (currently: BloggingIo@7)
+6. GET /clue?q=TEXT&mode=exact|contains
+- Purpose: search stored mini clues.
+- Required query:
+- `q`: clue text
+- Optional query:
+- `mode`: `exact` or `contains`
 
-1. Manual Fetch Today
-   URL: /today/add/{API_KEY}
-   Description: Forces the worker to fetch today's puzzle from NYT and store it.
-   Example: https://nyt-mini-archive.nytsolver.workers.dev/today/add/BloggingIo@7
+7. GET /solve?clue=TEXT&pattern=OPTIONAL
+- Purpose: solver-style clue lookup from the stored mini archive.
+- Required query:
+- `clue`: clue text
+- Optional query:
+- `pattern`: answer pattern using `?` wildcards, for example `C??`
+- Response shape:
+- `answers`: ranked candidate answers
+- `history`: matching stored clue rows
 
-2. Manual Fetch by Date
-   URL: /date/add/{API_KEY}?date=YYYY-MM-DD
-   Description: Forces the worker to fetch and store a puzzle for a specific date.
-   Example: https://nyt-mini-archive.nytsolver.workers.dev/date/add/BloggingIo@7?date=2025-12-25
+8. GET /answer?q=TEXT&mode=exact|contains
+- Purpose: search stored answers.
+- Required query:
+- `q`: answer text
+- Optional query:
+- `mode`: `exact` or `contains`
 
-================================================================
-AUTOMATION (CRON JOBS)
-================================================================
+9. GET /list?page=N&limit=N
+- Purpose: list stored puzzle dates with pagination.
+- Optional query:
+- `page`: defaults to `1`
+- `limit`: defaults to `50`, max `100`
 
-The worker automatically fetches the latest puzzle at the following times:
-- Daily: 03:01 UTC (Backup at 03:11 UTC) - Targeted at 10:01 PM EST weekday release.
-- Saturdays: 23:01 UTC (Backup at 23:11 UTC) - Targeted at 6:01 PM EST Sunday release.
+Protected Endpoints
+
+10. POST /today/add
+- Purpose: fetch the latest NYT mini puzzle and store it.
+- Required header:
+- `Authorization: Bearer <API_KEY>`
+
+11. POST /date/add?date=YYYY-MM-DD
+- Purpose: fetch and store one specific NYT mini puzzle by date.
+- Required header:
+- `Authorization: Bearer <API_KEY>`
+- Required query:
+- `date`: exact date like `2026-05-30`
+
+Common Status Codes
+- `200`: request succeeded
+- `400`: missing or invalid query value
+- `401`: missing or invalid bearer token on write routes
+- `404`: unknown route
+- `405`: wrong HTTP method on write routes
+- `410`: legacy path-token write route removed
+
+Examples
+- Read latest: `GET https://nyt-mini-archive.nytsolver.workers.dev/today`
+- Solve clue: `GET https://nyt-mini-archive.nytsolver.workers.dev/solve?clue=Cookie+brand`
+- Add latest:
+  `POST https://nyt-mini-archive.nytsolver.workers.dev/today/add`
+  Header: `Authorization: Bearer <API_KEY>`
