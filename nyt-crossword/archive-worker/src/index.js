@@ -246,6 +246,86 @@ function cleanClueText(text) {
   return cleaned;
 }
 
+function cleanDisplayText(text) {
+  if (!text) return '';
+
+  let cleaned = decodeHtmlEntities(String(text));
+
+  if (/%[0-9A-Fa-f]{2}/.test(cleaned)) {
+    try {
+      cleaned = decodeURIComponent(cleaned);
+    } catch {
+      cleaned = cleaned.replace(/%([0-9A-Fa-f]{2})/g, (_, hex) =>
+        String.fromCharCode(parseInt(hex, 16))
+      );
+    }
+  }
+
+  return cleaned
+    .replace(/<[^>]*>/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function normalizeByline(author, editor) {
+  let cleanAuthor = cleanDisplayText(author).replace(/^by\s+/i, '').trim();
+  let cleanEditor = cleanDisplayText(editor)
+    .replace(/^(?:edited by|editors?\s*:|ed\.?\s*)/i, '')
+    .trim();
+
+  if (!cleanEditor && cleanAuthor) {
+    const combinedPatterns = [
+      /^(.*?)\s*[;|/]\s*(?:edited by|ed\.?)\s*(.+)$/i,
+      /^(.*?)\s*[·•-]\s*edited by\s+(.+)$/i
+    ];
+
+    for (const pattern of combinedPatterns) {
+      const match = cleanAuthor.match(pattern);
+      if (match) {
+        cleanAuthor = cleanDisplayText(match[1]).replace(/^by\s+/i, '').trim();
+        cleanEditor = cleanDisplayText(match[2])
+          .replace(/^(?:edited by|editors?\s*:|ed\.?\s*)/i, '')
+          .trim();
+        break;
+      }
+    }
+  }
+
+  return {
+    author: cleanAuthor,
+    editor: cleanEditor
+  };
+}
+
+function summarizePuzzleCounts(across = [], down = []) {
+  const acrossCount = Array.isArray(across) ? across.length : 0;
+  const downCount = Array.isArray(down) ? down.length : 0;
+
+  return {
+    across_count: acrossCount,
+    down_count: downCount,
+    total_clues: acrossCount + downCount
+  };
+}
+
+function addPuzzleMetadata(puzzleData) {
+  if (!puzzleData?.puzzle) {
+    return puzzleData;
+  }
+
+  const counts = summarizePuzzleCounts(puzzleData.across, puzzleData.down);
+  const byline = normalizeByline(puzzleData.puzzle.author, puzzleData.puzzle.editor);
+
+  return {
+    ...puzzleData,
+    puzzle: {
+      ...puzzleData.puzzle,
+      ...byline,
+      ...counts
+    }
+  };
+}
+
 function normalizeClueForLookup(text) {
   return cleanClueText(text)
     .toLowerCase()
@@ -539,7 +619,7 @@ async function getRawPuzzleDataByDate(date, env) {
     down: clues.results.filter(c => c.direction === 'down')
   };
 
-  return result;
+  return addPuzzleMetadata(result);
 }
 
 // Get puzzle and all clues for a specific date
@@ -575,6 +655,11 @@ async function getCluesByDate(date, env) {
       puzzle_id: puzzleData.puzzle.puzzle_id,
       date: puzzleData.puzzle.date,
       title: puzzleData.puzzle.title,
+      author: puzzleData.puzzle.author,
+      editor: puzzleData.puzzle.editor,
+      across_count: puzzleData.puzzle.across_count,
+      down_count: puzzleData.puzzle.down_count,
+      total_clues: puzzleData.puzzle.total_clues,
       clues: puzzleData.clues
     };
 
@@ -1029,13 +1114,20 @@ function extractNYTData(jsonData, date) {
     });
   }
 
+  const byline = normalizeByline(
+    (jsonData.constructors && jsonData.constructors[0])
+      || (puzzleBody.constructors && puzzleBody.constructors[0])
+      || '',
+    jsonData.editor || puzzleBody.editor || ''
+  );
+
   return {
     date: date, // "YYYY-MM-DD"
     formatted_date: getFormattedDate(date),
     day_of_week: getDayOfWeek(date),
-    title: puzzleBody.title || `New York Times, ${getFormattedDate(date)}`,
-    author: (puzzleBody.constructors && puzzleBody.constructors[0]) ? puzzleBody.constructors[0] : "",
-    editor: (puzzleBody.editor) ? puzzleBody.editor : "",
+    title: cleanDisplayText(puzzleBody.title || `New York Times, ${getFormattedDate(date)}`),
+    author: byline.author,
+    editor: byline.editor,
     clues: transformedClues
   };
 }
@@ -1064,9 +1156,9 @@ async function savePuzzleToDatabase(puzzle, env) {
     const result = await insertPuzzle.bind(
       puzzle.date,
       puzzle.formatted_date || '',
-      puzzle.title || '',
-      puzzle.author || '',
-      puzzle.editor || '',
+      cleanDisplayText(puzzle.title || ''),
+      normalizeByline(puzzle.author, puzzle.editor).author,
+      normalizeByline(puzzle.author, puzzle.editor).editor,
       puzzle.day_of_week || '',
       permalink
     ).run();

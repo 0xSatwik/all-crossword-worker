@@ -180,6 +180,47 @@ export function cleanClueText(text) {
   return cleanDisplayText(text).replace(/:\s*$/, '').trim();
 }
 
+export function normalizeByline(author, editor) {
+  let cleanAuthor = cleanDisplayText(author || '').replace(/^by\s+/i, '').trim();
+  let cleanEditor = cleanDisplayText(editor || '')
+    .replace(/^(?:edited by|editors?\s*:|ed\.?\s*)/i, '')
+    .trim();
+
+  if (!cleanEditor && cleanAuthor) {
+    const combinedPatterns = [
+      /^(.*?)\s*[;|/]\s*(?:edited by|ed\.?)\s*(.+)$/i,
+      /^(.*?)\s*[·•-]\s*edited by\s+(.+)$/i
+    ];
+
+    for (const pattern of combinedPatterns) {
+      const match = cleanAuthor.match(pattern);
+      if (match) {
+        cleanAuthor = cleanDisplayText(match[1]).replace(/^by\s+/i, '').trim();
+        cleanEditor = cleanDisplayText(match[2])
+          .replace(/^(?:edited by|editors?\s*:|ed\.?\s*)/i, '')
+          .trim();
+        break;
+      }
+    }
+  }
+
+  return {
+    author: cleanAuthor,
+    editor: cleanEditor
+  };
+}
+
+export function summarizePuzzleCounts(across = [], down = []) {
+  const acrossCount = Array.isArray(across) ? across.length : 0;
+  const downCount = Array.isArray(down) ? down.length : 0;
+
+  return {
+    across_count: acrossCount,
+    down_count: downCount,
+    total_clues: acrossCount + downCount
+  };
+}
+
 export function normalizeClueForLookup(text) {
   return cleanClueText(text).toLowerCase().replace(/\s+/g, ' ').trim();
 }
@@ -227,12 +268,14 @@ export function sortClues(clues) {
 }
 
 export function normalizePuzzlePayload(payload) {
+  const byline = normalizeByline(payload.author, payload.editor);
+
   return {
     date: payload.date,
     formatted_date: payload.formatted_date || getFormattedDate(payload.date),
     title: cleanDisplayText(payload.title || ''),
-    author: cleanDisplayText(payload.author || ''),
-    editor: cleanDisplayText(payload.editor || ''),
+    author: byline.author,
+    editor: byline.editor,
     day_of_week: payload.day_of_week || getDayOfWeek(payload.date),
     permalink: payload.permalink || '',
     clues: sortClues(

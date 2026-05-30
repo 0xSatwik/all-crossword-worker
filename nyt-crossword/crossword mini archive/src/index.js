@@ -276,6 +276,83 @@ function normalizeAnswerForLookup(text) {
     .trim();
 }
 
+function cleanDisplayText(text) {
+  return String(text || '')
+    .replace(/<[^>]*>/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function normalizeByline(author, editor) {
+  let cleanAuthor = cleanDisplayText(author).replace(/^by\s+/i, '').trim();
+  let cleanEditor = cleanDisplayText(editor)
+    .replace(/^(?:edited by|editors?\s*:|ed\.?\s*)/i, '')
+    .trim();
+
+  if (!cleanEditor && cleanAuthor) {
+    const combinedPatterns = [
+      /^(.*?)\s*[;|/]\s*(?:edited by|ed\.?)\s*(.+)$/i,
+      /^(.*?)\s*[·•-]\s*edited by\s+(.+)$/i
+    ];
+
+    for (const pattern of combinedPatterns) {
+      const match = cleanAuthor.match(pattern);
+      if (match) {
+        cleanAuthor = cleanDisplayText(match[1]).replace(/^by\s+/i, '').trim();
+        cleanEditor = cleanDisplayText(match[2])
+          .replace(/^(?:edited by|editors?\s*:|ed\.?\s*)/i, '')
+          .trim();
+        break;
+      }
+    }
+  }
+
+  return {
+    author: cleanAuthor,
+    editor: cleanEditor
+  };
+}
+
+function getFormattedDate(dateStr) {
+  try {
+    return new Date(`${dateStr}T12:00:00`).toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+  } catch {
+    return dateStr;
+  }
+}
+
+function getDayOfWeek(dateStr) {
+  try {
+    return new Date(`${dateStr}T12:00:00`).toLocaleDateString('en-US', {
+      weekday: 'long'
+    });
+  } catch {
+    return '';
+  }
+}
+
+function buildMiniMetadata(date, extractedData, across = {}, down = {}) {
+  const acrossCount = Object.keys(across || {}).length;
+  const downCount = Object.keys(down || {}).length;
+  const byline = normalizeByline(extractedData?.constructor, extractedData?.editor);
+
+  return {
+    title: cleanDisplayText(extractedData?.title || 'NYT Mini Crossword'),
+    author: byline.author,
+    editor: byline.editor,
+    formatted_date: getFormattedDate(date),
+    day_of_week: getDayOfWeek(date),
+    across_count: acrossCount,
+    down_count: downCount,
+    total_clues: acrossCount + downCount
+  };
+}
+
 function parseSearchMode(mode, defaultMode = 'contains') {
   return mode === 'exact' ? 'exact' : defaultMode;
 }
@@ -524,6 +601,7 @@ async function getPuzzleByDate(date, env, corsHeaders = {}) {
       success: true,
       date: date,
       formatted: result.formatted_text,
+      meta: buildMiniMetadata(date, extractedData, extractedData.across, extractedData.down),
       data: {
         across: {},
         down: {}
@@ -1019,7 +1097,19 @@ function extractCrosswordData(puzzleData) {
     across: across_clues,
     down: down_clues,
     dimensions: puzzle.dimensions,
-    constructor: puzzleData.constructors ? puzzleData.constructors[0] : null,
+    title: cleanDisplayText(puzzle.title || 'NYT Mini Crossword'),
+    constructor: cleanDisplayText(
+      puzzle.constructors?.[0]
+      || puzzleData.constructors?.[0]
+      || puzzleData.body?.[0]?.constructors?.[0]
+      || ''
+    ),
+    editor: cleanDisplayText(
+      puzzle.editor
+      || puzzleData.editor
+      || puzzleData.body?.[0]?.editor
+      || ''
+    ),
     publication_date: puzzleData.publicationDate
   };
 }

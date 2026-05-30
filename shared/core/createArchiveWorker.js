@@ -5,9 +5,11 @@ import {
   getDayOfWeek,
   getFormattedDate,
   isBlockedApiCrawler,
+  normalizeByline,
   normalizeAnswerForLookup,
   normalizeClueForLookup,
   parseDate,
+  summarizePuzzleCounts,
   toIsoDate
 } from './utils.js';
 
@@ -88,6 +90,24 @@ function normalizePattern(pattern) {
     .trim();
 }
 
+function addPuzzleMetadata(puzzleData) {
+  if (!puzzleData?.puzzle) {
+    return puzzleData;
+  }
+
+  const counts = summarizePuzzleCounts(puzzleData.across, puzzleData.down);
+  const byline = normalizeByline(puzzleData.puzzle.author, puzzleData.puzzle.editor);
+
+  return {
+    ...puzzleData,
+    puzzle: {
+      ...puzzleData.puzzle,
+      ...byline,
+      ...counts
+    }
+  };
+}
+
 function matchesPattern(answerNorm, pattern) {
   if (!pattern) {
     return true;
@@ -144,7 +164,7 @@ async function getPuzzleByDate(date, env) {
     return errorResponse(`No puzzle found for date: ${date}`, 404);
   }
 
-  const safe = removeSensitiveFields(puzzleData);
+  const safe = removeSensitiveFields(addPuzzleMetadata(puzzleData));
   return successResponse(safe);
 }
 
@@ -192,7 +212,7 @@ async function getLatestStoredPuzzle(env) {
     return null;
   }
 
-  return getRawPuzzleDataByDate(row.date, env);
+  return addPuzzleMetadata(await getRawPuzzleDataByDate(row.date, env));
 }
 
 async function getCluesByDate(date, env) {
@@ -205,6 +225,9 @@ async function getCluesByDate(date, env) {
     puzzle_id: puzzleData.puzzle.puzzle_id,
     date: puzzleData.puzzle.date,
     title: puzzleData.puzzle.title,
+    author: normalizeByline(puzzleData.puzzle.author, puzzleData.puzzle.editor).author,
+    editor: normalizeByline(puzzleData.puzzle.author, puzzleData.puzzle.editor).editor,
+    ...summarizePuzzleCounts(puzzleData.across, puzzleData.down),
     clues: puzzleData.clues
   });
   return successResponse(safe);
