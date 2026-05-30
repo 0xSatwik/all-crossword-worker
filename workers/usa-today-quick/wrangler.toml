@@ -6,8 +6,3 @@ compatibility_date = "2026-04-09"
 binding = "DB"
 database_name = "usa_today_quick_archive"
 database_id = "7d68f0e3-14eb-4863-b45e-720df2f217cf"
-
-[[kv_namespaces]]
-binding = "HOT_CACHE"
-id = "a101926f5f3a481daa27744828587481"
-preview_id = "ca9aa00bf435445e8a19cad59513736d"

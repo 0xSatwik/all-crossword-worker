@@ -50,7 +50,33 @@ function entrySource(worker) {
   }
 }
 
+function cronSchedule(worker) {
+  if (worker.family === 'guardian') {
+    return ['5 23 * * *', '5 0 * * *', '5 1 * * *'];
+  }
+
+  if (worker.family === 'latimes-daily' || worker.family === 'latimes-mini') {
+    return ['15 4 * * *', '15 5 * * *', '15 8 * * *'];
+  }
+
+  if (worker.family === 'usa-today-daily' || worker.family === 'usa-today-quick') {
+    return ['20 4 * * *', '20 5 * * *', '20 8 * * *'];
+  }
+
+  if (worker.family.startsWith('wapo-')) {
+    return ['25 4 * * *', '25 5 * * *', '25 8 * * *'];
+  }
+
+  return ['10 4 * * *', '10 5 * * *', '10 8 * * *'];
+}
+
 function wranglerToml(worker) {
+  const vars = worker.slug === 'usa-today-daily'
+    ? `\n[vars]\nEXTRA_UPDATE_URLS = "https://usa-today-quick-worker.everyman-5b4.workers.dev/api/update/latest"\n`
+    : '';
+  const triggers = worker.slug === 'usa-today-quick'
+    ? ''
+    : `\n[triggers]\ncrons = [\n${cronSchedule(worker).map((cron) => `  "${cron}"`).join(',\n')}\n]\n`;
   return `name = "${worker.workerName}"
 main = "src/index.js"
 compatibility_date = "2026-04-09"
@@ -59,18 +85,7 @@ compatibility_date = "2026-04-09"
 binding = "DB"
 database_name = "${worker.databaseName}"
 database_id = "REPLACE_WITH_D1_DATABASE_ID"
-
-[[kv_namespaces]]
-binding = "HOT_CACHE"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
-preview_id = "REPLACE_WITH_KV_PREVIEW_NAMESPACE_ID"
-
-[triggers]
-crons = [
-  "0 0 * * *",
-  "30 4 * * *",
-  "30 9 * * *"
-]
+${vars}${triggers}
 `;
 }
 
@@ -99,10 +114,6 @@ function setupCommands(workers) {
     sections.push(`cd workers/${worker.slug}`);
     sections.push(`npx wrangler d1 create ${worker.databaseName}`);
     sections.push('# Copy the returned database_id into wrangler.toml');
-    sections.push('npx wrangler kv namespace create HOT_CACHE');
-    sections.push('# Copy the returned id into wrangler.toml as HOT_CACHE.id');
-    sections.push('npx wrangler kv namespace create HOT_CACHE --preview');
-    sections.push('# Copy the returned id into wrangler.toml as HOT_CACHE.preview_id');
     sections.push('npx wrangler secret put API_TOKEN');
     if (worker.family === 'guardian') {
       sections.push('# Optional: only if you want your own Guardian API key');

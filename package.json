@@ -4,5 +4,19 @@
   "type": "module",
   "scripts": {
     "generate": "node scripts/generate.mjs"
-  }
+  },
+  "version": "1.0.0",
+  "description": "This folder contains a shared Cloudflare Worker archive runtime plus separate worker projects for the crossword games that are currently working from the existing scraping codebase.",
+  "main": "index.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0xSatwik/all-crossword-worker.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/0xSatwik/all-crossword-worker/issues"
+  },
+  "homepage": "https://github.com/0xSatwik/all-crossword-worker#readme"
 }

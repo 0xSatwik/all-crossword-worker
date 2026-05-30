@@ -27,7 +27,7 @@ Reason: NYT daily and NYT mini were already covered in the existing setup.
 
 Shared pieces:
 
-- `shared/core/createArchiveWorker.js`: common Worker API, D1 persistence, KV caching, search, add/update/delete, and scheduled sync.
+- `shared/core/createArchiveWorker.js`: common Worker API, D1 persistence, search, add/update/delete, and scheduled sync.
 - `shared/core/amuselabs.js`: shared AmuseLabs decoding used by Atlantic and LA Times Mini.
 - `shared/providers/*.js`: source-specific fetchers.
 - `shared/migrations/*.sql`: shared D1 schema copied from the existing archive worker design.

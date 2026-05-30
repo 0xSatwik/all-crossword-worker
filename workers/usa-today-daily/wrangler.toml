@@ -7,14 +7,13 @@ binding = "DB"
 database_name = "usa_today_daily_archive"
 database_id = "7eb9493d-01f0-4d29-91ba-2627ee5b52fc"
 
-[[kv_namespaces]]
-binding = "HOT_CACHE"
-id = "b8c7501d2c7449308078408e4a4d7c50"
-preview_id = "1a3c970b3a014a1cbd0441c983d22631"
+[vars]
+EXTRA_UPDATE_URLS = "https://usa-today-quick-worker.everyman-5b4.workers.dev/api/update/latest"
+
 
 [triggers]
 crons = [
-  "0 0 * * *",
-  "30 4 * * *",
-  "30 9 * * *"
+  "20 4 * * *",
+  "20 5 * * *",
+  "20 8 * * *"
 ]

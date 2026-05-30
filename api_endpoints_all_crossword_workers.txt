@@ -16,6 +16,11 @@ Live Worker URLs
 - USA Today Quick: https://usa-today-quick-worker.everyman-5b4.workers.dev
 - Washington Post Daily: https://washington-post-daily-worker.gspeedy.workers.dev
 
+Live Frontend
+- Cloudflare Pages production project: https://crossword-solver-frontend.pages.dev
+- Latest tested deployment: https://2495c073.crossword-solver-frontend.pages.dev
+- GitHub source: https://github.com/monalisha077777/crossword-solver-frontend
+
 Not Live Yet
 - Washington Post Mini: Cloudflare credentials in `cloudflare.txt` are still placeholders.
 - Washington Post Sunday: Cloudflare credentials in `cloudflare.txt` are still placeholders.
@@ -24,6 +29,23 @@ Auth
 - Read endpoints are public.
 - Write endpoints require `Authorization: Bearer <API_TOKEN>`.
 - Legacy token-in-path writes are removed.
+
+Traffic And Indexing Protection
+- All API workers return `X-Robots-Tag: noindex, nofollow`.
+- Known AI crawler user agents are blocked at the API worker layer with HTTP 403.
+- Static HTML pages are not blocked for normal crawlers or AI crawlers.
+- The frontend is now static Cloudflare Pages output. There is no Pages Function `_worker.js` in the deployed build.
+- Old per-source archive routes redirect to `/archive`; `/archive` is the only archive UI linked from the site.
+- Cloudflare Pages `_redirects` preserves incoming query strings, so strict stripping of old `?date=` query URLs requires a zone-level Redirect Rule or Bulk Redirect with "preserve query string" disabled when the final custom domain zone is configured.
+
+Rebuild Flow
+- Archive workers support GitHub repository dispatch through these secrets:
+- `GITHUB_DISPATCH_REPO`
+- `GITHUB_DISPATCH_TOKEN`
+- `GITHUB_DISPATCH_EVENT`
+- Workers dispatch only after a new puzzle is stored.
+- The frontend GitHub workflow uses concurrency cancellation so repeated worker updates collapse into the newest deploy.
+- USA Today Quick has no direct cron trigger because its account is at the Free-plan cron limit. USA Today Daily owns the three cron triggers and fans out to USA Today Quick via protected `POST /api/update/latest`.
 
 Shared Public Endpoints
 

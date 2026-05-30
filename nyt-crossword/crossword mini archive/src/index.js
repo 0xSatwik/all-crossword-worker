@@ -4,6 +4,77 @@
  * Provides API endpoints for accessing and updating the data
  */
 
+const API_BLOCKED_USER_AGENT_PARTS = [
+  'gptbot',
+  'chatgpt-user',
+  'claudebot',
+  'claude-user',
+  'claude-searchbot',
+  'anthropic-ai',
+  'perplexitybot',
+  'perplexity-user',
+  'bytespider',
+  'ccbot',
+  'cohere-ai',
+  'diffbot',
+  'meta-externalagent',
+  'amazonbot'
+];
+
+function isBlockedApiCrawler(request) {
+  const userAgent = (request.headers.get('User-Agent') || '').toLowerCase();
+  return API_BLOCKED_USER_AGENT_PARTS.some((part) => userAgent.includes(part));
+}
+
+function blockedCrawlerResponse(corsHeaders) {
+  return new Response(JSON.stringify({
+    success: false,
+    error: 'Automated AI/API crawling is not allowed for this endpoint.'
+  }), {
+    status: 403,
+    headers: { 'Content-Type': 'application/json', ...corsHeaders },
+  });
+}
+
+async function triggerFrontendRebuild(env, payload) {
+  if (env.FRONTEND_REBUILD_HOOK_URL) {
+    try {
+      await fetch(env.FRONTEND_REBUILD_HOOK_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    } catch (error) {
+      console.error('Frontend rebuild hook failed:', error);
+    }
+  }
+
+  if (env.GITHUB_DISPATCH_TOKEN && env.GITHUB_DISPATCH_REPO) {
+    try {
+      const response = await fetch(`https://api.github.com/repos/${env.GITHUB_DISPATCH_REPO}/dispatches`, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/vnd.github+json',
+          Authorization: `Bearer ${env.GITHUB_DISPATCH_TOKEN}`,
+          'Content-Type': 'application/json',
+          'User-Agent': 'nyt-mini-archive',
+          'X-GitHub-Api-Version': '2026-03-10'
+        },
+        body: JSON.stringify({
+          event_type: env.GITHUB_DISPATCH_EVENT || 'crossword-data-updated',
+          client_payload: payload
+        })
+      });
+
+      if (!response.ok) {
+        console.error(`GitHub repository dispatch failed: ${response.status}`);
+      }
+    } catch (error) {
+      console.error('GitHub repository dispatch failed:', error);
+    }
+  }
+}
+
 // Handle all incoming requests
 export default {
   async fetch(request, env, ctx) {
@@ -15,6 +86,10 @@ export default {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      'Cache-Control': 'no-store',
+      'CDN-Cache-Control': 'no-store',
+      'X-Robots-Tag': 'noindex, nofollow',
+      'X-Content-Type-Options': 'nosniff',
     };
 
     const authorizeWrite = () => Boolean(env.API_KEY) && request.headers.get('Authorization') === `Bearer ${env.API_KEY}`;
@@ -24,6 +99,10 @@ export default {
       return new Response(null, {
         headers: corsHeaders,
       });
+    }
+
+    if (isBlockedApiCrawler(request)) {
+      return blockedCrawlerResponse(corsHeaders);
     }
 
     // API endpoints
@@ -240,12 +319,34 @@ async function fetchAndStoreTodaysPuzzle(env, corsHeaders = {}) {
     // use the date from the puzzle itself, fallback to today if missing
     const dateToStore = puzzleData.publicationDate || today;
 
+    if (await puzzleExistsInDB(dateToStore, env.DB)) {
+      return new Response(JSON.stringify({
+        success: true,
+        message: `Puzzle for ${dateToStore} already exists in the database.`,
+        date: dateToStore,
+        updated: false
+      }), {
+        headers: { 'Content-Type': 'application/json', ...corsHeaders },
+      });
+    }
+
     // Process and store the puzzle data
-    await storePuzzleInDB(dateToStore, puzzleData, env.DB);
+    const stored = await storePuzzleInDB(dateToStore, puzzleData, env.DB);
+
+    await triggerFrontendRebuild(env, {
+      provider: 'nyt-mini',
+      title: 'NYT Mini Crossword',
+      date: dateToStore,
+      clue_count: stored.clue_count,
+      updated_at: new Date().toISOString()
+    });
 
     return new Response(JSON.stringify({
       success: true,
-      message: `Successfully fetched and stored puzzle for ${dateToStore}`
+      message: `Successfully fetched and stored puzzle for ${dateToStore}`,
+      date: dateToStore,
+      clue_count: stored.clue_count,
+      updated: true
     }), {
       headers: { 'Content-Type': 'application/json', ...corsHeaders },
     });
@@ -265,15 +366,37 @@ async function fetchAndStoreTodaysPuzzle(env, corsHeaders = {}) {
  */
 async function fetchAndStorePuzzleByDate(date, env, corsHeaders = {}) {
   try {
+    if (await puzzleExistsInDB(date, env.DB)) {
+      return new Response(JSON.stringify({
+        success: true,
+        message: `Puzzle for ${date} already exists in the database.`,
+        date,
+        updated: false
+      }), {
+        headers: { 'Content-Type': 'application/json', ...corsHeaders },
+      });
+    }
+
     // Fetch puzzle for the specified date
     const puzzleData = await fetchNYTPuzzle(date, true);
 
     // Process and store the puzzle data
-    await storePuzzleInDB(date, puzzleData, env.DB);
+    const stored = await storePuzzleInDB(date, puzzleData, env.DB);
+
+    await triggerFrontendRebuild(env, {
+      provider: 'nyt-mini',
+      title: 'NYT Mini Crossword',
+      date,
+      clue_count: stored.clue_count,
+      updated_at: new Date().toISOString()
+    });
 
     return new Response(JSON.stringify({
       success: true,
-      message: `Successfully fetched and stored puzzle for ${date}`
+      message: `Successfully fetched and stored puzzle for ${date}`,
+      date,
+      clue_count: stored.clue_count,
+      updated: true
     }), {
       headers: { 'Content-Type': 'application/json', ...corsHeaders },
     });
@@ -330,6 +453,11 @@ async function getLatestAvailablePuzzleDate(targetDate, env) {
   const latestStmt = env.DB.prepare('SELECT date FROM puzzles ORDER BY date DESC LIMIT 1');
   const latestResult = await latestStmt.first();
   return latestResult?.date || null;
+}
+
+async function puzzleExistsInDB(date, db) {
+  const result = await db.prepare('SELECT 1 FROM puzzles WHERE date = ? LIMIT 1').bind(date).first();
+  return Boolean(result);
 }
 
 /**
@@ -816,6 +944,10 @@ async function storePuzzleInDB(date, puzzleData, db) {
 
   // Execute all clue insertions
   await db.batch(clueStatements);
+
+  return {
+    clue_count: clueStatements.length
+  };
 }
 
 /**

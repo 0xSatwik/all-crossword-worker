@@ -4,15 +4,14 @@ import {
   cleanClueText,
   getDayOfWeek,
   getFormattedDate,
+  isBlockedApiCrawler,
   normalizeAnswerForLookup,
   normalizeClueForLookup,
   parseDate,
   toIsoDate
 } from './utils.js';
 
-const HOT_CACHE_VERSION_KEY = 'search-version';
-const HOT_CACHE_TTL_SECONDS = 3600;
-const PUZZLE_CACHE_TTL_SECONDS = 900;
+const READ_CACHE_CONTROL = 'public, max-age=60, s-maxage=300, stale-while-revalidate=3600';
 
 function errorResponse(message, status = 400) {
   return new Response(
@@ -36,6 +35,19 @@ function successResponse(data) {
     }),
     {
       status: 200,
+      headers: buildHeaders({ cacheControl: READ_CACHE_CONTROL })
+    }
+  );
+}
+
+function blockedCrawlerResponse() {
+  return new Response(
+    JSON.stringify({
+      success: false,
+      error: 'Automated AI/API crawling is not allowed for this endpoint.'
+    }),
+    {
+      status: 403,
       headers: buildHeaders()
     }
   );
@@ -94,69 +106,6 @@ function matchesPattern(answerNorm, pattern) {
   return true;
 }
 
-function getHotCache(env) {
-  return env.HOT_CACHE || null;
-}
-
-async function getHotCacheVersion(env) {
-  const cache = getHotCache(env);
-  if (!cache) {
-    return 'v0';
-  }
-  return (await cache.get(HOT_CACHE_VERSION_KEY)) || 'v0';
-}
-
-async function bumpHotCacheVersion(env) {
-  const cache = getHotCache(env);
-  if (!cache) {
-    return;
-  }
-  await cache.put(HOT_CACHE_VERSION_KEY, `v${Date.now()}`, {
-    expirationTtl: HOT_CACHE_TTL_SECONDS
-  });
-}
-
-async function getCachedJson(env, key) {
-  const cache = getHotCache(env);
-  if (!cache) {
-    return null;
-  }
-  return cache.get(key, 'json');
-}
-
-async function putCachedJson(env, key, data, ttl = HOT_CACHE_TTL_SECONDS) {
-  const cache = getHotCache(env);
-  if (!cache) {
-    return;
-  }
-  await cache.put(key, JSON.stringify(data), {
-    expirationTtl: ttl
-  });
-}
-
-async function deleteCachedKey(env, key) {
-  const cache = getHotCache(env);
-  if (!cache) {
-    return;
-  }
-  await cache.delete(key);
-}
-
-function buildExactCacheKey(type, version, value) {
-  return `${type}:${version}:${value}`;
-}
-
-function buildDateCacheKey(type, date) {
-  return `${type}:${date}`;
-}
-
-async function invalidatePuzzleCaches(date, env) {
-  await Promise.all([
-    deleteCachedKey(env, buildDateCacheKey('puzzle', date)),
-    deleteCachedKey(env, buildDateCacheKey('clues', date))
-  ]);
-}
-
 async function getRawPuzzleDataByDate(date, env) {
   const puzzle = await env.DB.prepare(`
     SELECT *
@@ -190,19 +139,12 @@ async function getRawPuzzleDataByDate(date, env) {
 }
 
 async function getPuzzleByDate(date, env) {
-  const cacheKey = buildDateCacheKey('puzzle', date);
-  const cached = await getCachedJson(env, cacheKey);
-  if (cached) {
-    return successResponse(cached);
-  }
-
   const puzzleData = await getRawPuzzleDataByDate(date, env);
   if (!puzzleData) {
     return errorResponse(`No puzzle found for date: ${date}`, 404);
   }
 
   const safe = removeSensitiveFields(puzzleData);
-  await putCachedJson(env, cacheKey, safe, PUZZLE_CACHE_TTL_SECONDS);
   return successResponse(safe);
 }
 
@@ -254,12 +196,6 @@ async function getLatestStoredPuzzle(env) {
 }
 
 async function getCluesByDate(date, env) {
-  const cacheKey = buildDateCacheKey('clues', date);
-  const cached = await getCachedJson(env, cacheKey);
-  if (cached) {
-    return successResponse(cached);
-  }
-
   const puzzleData = await getRawPuzzleDataByDate(date, env);
   if (!puzzleData) {
     return errorResponse(`No puzzle found for date: ${date}`, 404);
@@ -271,27 +207,16 @@ async function getCluesByDate(date, env) {
     title: puzzleData.puzzle.title,
     clues: puzzleData.clues
   });
-
-  await putCachedJson(env, cacheKey, safe, PUZZLE_CACHE_TTL_SECONDS);
   return successResponse(safe);
 }
 
 async function searchByAnswer(answer, env, mode = 'exact') {
   const normalized = normalizeAnswerForLookup(answer);
-  const isExact = mode === 'exact';
 
   if (!normalized) {
     return successResponse({ query: answer, mode, count: 0, results: [] });
   }
-
-  const version = isExact ? await getHotCacheVersion(env) : null;
-  const cacheKey = isExact ? buildExactCacheKey('answer', version, normalized) : null;
-  if (cacheKey) {
-    const cached = await getCachedJson(env, cacheKey);
-    if (cached) {
-      return successResponse(cached);
-    }
-  }
+  const isExact = mode === 'exact';
 
   const sql = isExact ? `
     SELECT c.clue_id, c.puzzle_id, c.number, c.direction, c.clue_text, c.answer, p.date, p.title
@@ -318,28 +243,14 @@ async function searchByAnswer(answer, env, mode = 'exact') {
     results: result.results || []
   });
 
-  if (cacheKey) {
-    await putCachedJson(env, cacheKey, safe);
-  }
-
   return successResponse(safe);
 }
 
 async function searchByClueText(clueText, env, mode = 'contains') {
   const normalized = normalizeClueForLookup(clueText);
-  const isExact = mode === 'exact';
 
   if (!normalized) {
     return successResponse({ query: clueText, mode, count: 0, results: [] });
-  }
-
-  const version = isExact ? await getHotCacheVersion(env) : null;
-  const cacheKey = isExact ? buildExactCacheKey('clue', version, normalized) : null;
-  if (cacheKey) {
-    const cached = await getCachedJson(env, cacheKey);
-    if (cached) {
-      return successResponse(cached);
-    }
   }
 
   const result = await queryClueMatches(clueText, env, mode, 100);
@@ -349,10 +260,6 @@ async function searchByClueText(clueText, env, mode = 'contains') {
     count: result.results.length,
     results: result.results
   });
-
-  if (cacheKey) {
-    await putCachedJson(env, cacheKey, safe);
-  }
 
   return successResponse(safe);
 }
@@ -410,13 +317,6 @@ async function solveByClue(clueText, pattern, env) {
     });
   }
 
-  const version = await getHotCacheVersion(env);
-  const cacheKey = buildExactCacheKey('solve', version, `${normalizedClue}|${normalizedPattern || '*'}`);
-  const cached = await getCachedJson(env, cacheKey);
-  if (cached) {
-    return successResponse(cached);
-  }
-
   const exact = await queryClueMatches(clueText, env, 'exact', 200);
   let mode = 'exact';
   let history = exact.results.filter((match) => matchesPattern(normalizeAnswerForLookup(match.answer), normalizedPattern));
@@ -438,8 +338,6 @@ async function solveByClue(clueText, pattern, env) {
     answers,
     history
   });
-
-  await putCachedJson(env, cacheKey, safe);
   return successResponse(safe);
 }
 
@@ -447,13 +345,6 @@ async function getRelatedClues(answer, env) {
   const normalized = normalizeAnswerForLookup(answer);
   if (!normalized) {
     return successResponse({ answer, occurrences: 0, appearances: [] });
-  }
-
-  const version = await getHotCacheVersion(env);
-  const cacheKey = buildExactCacheKey('related', version, normalized);
-  const cached = await getCachedJson(env, cacheKey);
-  if (cached) {
-    return successResponse(cached);
   }
 
   const [{ count: occurrences = 0 } = {}, rows] = await Promise.all([
@@ -524,8 +415,6 @@ async function getRelatedClues(answer, env) {
     occurrences,
     appearances: Object.values(grouped)
   });
-
-  await putCachedJson(env, cacheKey, safe);
   return successResponse(safe);
 }
 
@@ -608,14 +497,96 @@ async function savePuzzleToDatabase(puzzle, env) {
     await env.DB.batch(statements.slice(index, index + chunkSize));
   }
 
-  await invalidatePuzzleCaches(puzzle.date, env);
-  await bumpHotCacheVersion(env);
-
   return {
     puzzle_id: puzzleId,
     clue_count: statements.length,
     is_new: !existing
   };
+}
+
+async function triggerFrontendRebuild(env, payload) {
+  const body = JSON.stringify({
+    event_type: env.GITHUB_DISPATCH_EVENT || 'crossword-data-updated',
+    client_payload: payload
+  });
+
+  if (env.FRONTEND_REBUILD_HOOK_URL) {
+    try {
+      await fetch(env.FRONTEND_REBUILD_HOOK_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    } catch (error) {
+      console.error('Frontend rebuild hook failed:', error);
+    }
+  }
+
+  if (env.GITHUB_DISPATCH_TOKEN && env.GITHUB_DISPATCH_REPO) {
+    try {
+      const response = await fetch(`https://api.github.com/repos/${env.GITHUB_DISPATCH_REPO}/dispatches`, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/vnd.github+json',
+          Authorization: `Bearer ${env.GITHUB_DISPATCH_TOKEN}`,
+          'Content-Type': 'application/json',
+          'User-Agent': 'crossword-archive-worker',
+          'X-GitHub-Api-Version': '2026-03-10'
+        },
+        body
+      });
+
+      if (!response.ok) {
+        console.error(`GitHub repository dispatch failed: ${response.status}`);
+      }
+    } catch (error) {
+      console.error('GitHub repository dispatch failed:', error);
+    }
+  }
+}
+
+async function notifyFrontendIfUpdated(env, provider, result) {
+  if (!result?.updated) {
+    return;
+  }
+
+  await triggerFrontendRebuild(env, {
+    provider: provider.slug,
+    title: provider.title,
+    date: result.date,
+    updated_at: new Date().toISOString()
+  });
+}
+
+async function runExtraScheduledUpdates(env) {
+  if (!env.EXTRA_UPDATE_URLS) {
+    return [];
+  }
+
+  const urls = String(env.EXTRA_UPDATE_URLS)
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  const token = env.EXTRA_UPDATE_TOKEN || env.API_TOKEN;
+  const results = [];
+
+  for (const url of urls) {
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: token ? `Bearer ${token}` : '',
+          Accept: 'application/json'
+        }
+      });
+      results.push({ url, ok: response.ok, status: response.status });
+    } catch (error) {
+      console.error(`Extra scheduled update failed for ${url}:`, error);
+      results.push({ url, ok: false, error: error.message });
+    }
+  }
+
+  return results;
 }
 
 async function deletePuzzleByDate(date, env) {
@@ -633,9 +604,6 @@ async function deletePuzzleByDate(date, env) {
     env.DB.prepare('DELETE FROM clues WHERE puzzle_id = ?').bind(existing.puzzle_id),
     env.DB.prepare('DELETE FROM puzzles WHERE puzzle_id = ?').bind(existing.puzzle_id)
   ]);
-
-  await invalidatePuzzleCaches(date, env);
-  await bumpHotCacheVersion(env);
 
   return successResponse({
     message: `Successfully deleted puzzle for ${date}`,
@@ -701,14 +669,17 @@ async function fetchAndSavePuzzle(date, env, provider) {
 
   const puzzle = await provider.fetchByDate(date, env);
   const result = await savePuzzleToDatabase(puzzle, env);
-
-  return successResponse({
+  const payload = {
     message: `Saved ${provider.title} puzzle for ${date}.`,
     date,
     puzzle_id: result.puzzle_id,
     clue_count: result.clue_count,
     updated: true
-  });
+  };
+
+  await notifyFrontendIfUpdated(env, provider, payload);
+
+  return successResponse(payload);
 }
 
 async function fetchAndSaveLatest(env, provider) {
@@ -726,13 +697,16 @@ async function fetchAndSaveLatest(env, provider) {
   }
 
   const result = await savePuzzleToDatabase(latestPuzzle, env);
-  return successResponse({
+  const payload = {
     message: `Saved latest available ${provider.title} puzzle.`,
     date: latestPuzzle.date,
     puzzle_id: result.puzzle_id,
     clue_count: result.clue_count,
     updated: true
-  });
+  };
+
+  await notifyFrontendIfUpdated(env, provider, payload);
+  return successResponse(payload);
 }
 
 export function createArchiveWorker(provider) {
@@ -743,6 +717,10 @@ export function createArchiveWorker(provider) {
 
       if (request.method === 'OPTIONS') {
         return new Response(null, { headers: buildHeaders() });
+      }
+
+      if (isBlockedApiCrawler(request)) {
+        return blockedCrawlerResponse();
       }
 
       try {
@@ -876,7 +854,9 @@ export function createArchiveWorker(provider) {
 
     async scheduled(event, env) {
       try {
-        return await fetchAndSaveLatest(env, provider);
+        const response = await fetchAndSaveLatest(env, provider);
+        await runExtraScheduledUpdates(env);
+        return response;
       } catch (error) {
         return errorResponse(error.message || 'Scheduled update failed.', 500);
       }

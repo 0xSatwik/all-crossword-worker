@@ -7,14 +7,10 @@ binding = "DB"
 database_name = "latimes_mini_archive"
 database_id = "2d48e3d0-5867-4485-9def-bd7c488a9d1a"
 
-[[kv_namespaces]]
-binding = "HOT_CACHE"
-id = "e4b86b14425442b4bbb382181f2a8d18"
-preview_id = "5f2e254cd83e4d38be0916f385e335c6"
 
 [triggers]
 crons = [
-  "0 0 * * *",
-  "30 4 * * *",
-  "30 9 * * *"
+  "15 4 * * *",
+  "15 5 * * *",
+  "15 8 * * *"
 ]

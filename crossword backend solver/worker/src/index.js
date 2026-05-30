@@ -10,13 +10,36 @@ const DATAMUSE_API_URL = 'https://api.datamuse.com/words';
 const DEFAULT_ARCHIVE_API_URL = 'https://crossword-archive-worker.mitomat.workers.dev';
 const DEFAULT_MINI_API_URL = 'https://nyt-mini-archive.nytsolver.workers.dev';
 const DEFAULT_CACHE_CONTROL = 'public, max-age=300, s-maxage=3600';
+const API_BLOCKED_USER_AGENT_PARTS = [
+  'gptbot',
+  'chatgpt-user',
+  'claudebot',
+  'claude-user',
+  'claude-searchbot',
+  'anthropic-ai',
+  'perplexitybot',
+  'perplexity-user',
+  'bytespider',
+  'ccbot',
+  'cohere-ai',
+  'diffbot',
+  'meta-externalagent',
+  'amazonbot'
+];
 
 function getCorsHeaders(env) {
   return {
     'Access-Control-Allow-Origin': env.ALLOWED_ORIGIN || '*',
     'Access-Control-Allow-Methods': 'GET, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
+    'X-Robots-Tag': 'noindex, nofollow',
+    'X-Content-Type-Options': 'nosniff',
   };
+}
+
+function isBlockedApiCrawler(request) {
+  const userAgent = (request.headers.get('User-Agent') || '').toLowerCase();
+  return API_BLOCKED_USER_AGENT_PARTS.some((part) => userAgent.includes(part));
 }
 
 function jsonResponse(data, env, init = {}) {
@@ -563,6 +586,10 @@ export default {
         status: 204,
         headers: getCorsHeaders(env),
       });
+    }
+
+    if (isBlockedApiCrawler(request)) {
+      return errorResponse('Automated AI/API crawling is not allowed for this endpoint.', env, 403);
     }
 
     if (request.method !== 'GET') {

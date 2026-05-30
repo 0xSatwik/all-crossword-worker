@@ -7,10 +7,6 @@ binding = "DB"
 database_name = "crossword_archive"
 database_id = "c1a8e713-a12a-4376-aafa-1b934fe236af" 
 
-[[kv_namespaces]]
-binding = "HOT_CACHE"
-id = "d46351efbdf34cfea46318da1aec71d2"
-preview_id = "d46351efbdf34cfea46318da1aec71d2"
 
 # Scheduled triggers for daily puzzle updates
 [triggers]

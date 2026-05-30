@@ -9,12 +9,41 @@ export function notFound(message) {
   return new NotFoundError(message);
 }
 
-export function buildHeaders() {
+const API_BLOCKED_USER_AGENT_PARTS = [
+  'gptbot',
+  'chatgpt-user',
+  'claudebot',
+  'claude-user',
+  'claude-searchbot',
+  'anthropic-ai',
+  'perplexitybot',
+  'perplexity-user',
+  'bytespider',
+  'ccbot',
+  'cohere-ai',
+  'diffbot',
+  'omgili',
+  'facebookbot',
+  'meta-externalagent',
+  'amazonbot'
+];
+
+export function isBlockedApiCrawler(request) {
+  const userAgent = (request.headers.get('User-Agent') || '').toLowerCase();
+  return API_BLOCKED_USER_AGENT_PARTS.some((part) => userAgent.includes(part));
+}
+
+export function buildHeaders(options = {}) {
+  const cacheControl = options.cacheControl || 'no-store';
   return {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, OPTIONS, POST',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    'Content-Type': 'application/json'
+    'Content-Type': options.contentType || 'application/json',
+    'Cache-Control': cacheControl,
+    'CDN-Cache-Control': options.cdnCacheControl || cacheControl,
+    'X-Robots-Tag': 'noindex, nofollow',
+    'X-Content-Type-Options': 'nosniff'
   };
 }
 

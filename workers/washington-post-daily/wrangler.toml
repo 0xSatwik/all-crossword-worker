@@ -7,14 +7,10 @@ binding = "DB"
 database_name = "washington_post_daily_archive"
 database_id = "69e16ac4-c357-409b-b780-4451d2368e8c"
 
-[[kv_namespaces]]
-binding = "HOT_CACHE"
-id = "35e34e210d6545028612dde8c235b2bd"
-preview_id = "ef725cc4b6d4440c9b81f6c2d39aa22b"
 
 [triggers]
 crons = [
-  "0 0 * * *",
-  "30 4 * * *",
-  "30 9 * * *"
+  "25 4 * * *",
+  "25 5 * * *",
+  "25 8 * * *"
 ]

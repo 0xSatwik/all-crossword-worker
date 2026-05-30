@@ -7,14 +7,10 @@ binding = "DB"
 database_name = "guardian_prize_archive"
 database_id = "5fb5ac31-60a1-460c-b7ac-f0529c667c61"
 
-[[kv_namespaces]]
-binding = "HOT_CACHE"
-id = "8c961c7c3ac94893b1e5c08cb8eeb21d"
-preview_id = "77ad77b921184feda85cdcd53ac93b95"
 
 [triggers]
 crons = [
-  "0 0 * * *",
-  "30 4 * * *",
-  "30 9 * * *"
+  "5 23 * * *",
+  "5 0 * * *",
+  "5 1 * * *"
 ]
