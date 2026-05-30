@@ -10,6 +10,7 @@ const DATAMUSE_API_URL = 'https://api.datamuse.com/words';
 const DEFAULT_ARCHIVE_API_URL = 'https://crossword-archive-worker.mitomat.workers.dev';
 const DEFAULT_MINI_API_URL = 'https://nyt-mini-archive.nytsolver.workers.dev';
 const DEFAULT_CACHE_CONTROL = 'public, max-age=300, s-maxage=3600';
+const SOLVER_CACHE_VERSION = '2026-05-31-v2';
 const API_BLOCKED_USER_AGENT_PARTS = [
   'gptbot',
   'chatgpt-user',
@@ -97,10 +98,26 @@ function decodeHtmlEntities(text) {
   });
 }
 
+function decodePercentEscapes(text) {
+  const value = String(text || '');
+
+  if (!/%[0-9A-Fa-f]{2}/.test(value)) {
+    return value;
+  }
+
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value.replace(/%([0-9A-Fa-f]{2})/g, (_, hex) =>
+      String.fromCharCode(parseInt(hex, 16))
+    );
+  }
+}
+
 function cleanClueText(text) {
   if (!text) return '';
 
-  return decodeHtmlEntities(text)
+  return decodePercentEscapes(decodeHtmlEntities(text))
     .replace(/<[^>]*>/g, '')
     .replace(/:\s*$/, '')
     .replace(/\s+/g, ' ')
@@ -241,6 +258,7 @@ function buildInternalAnswerResults(dailyMatches, miniMatches, pattern) {
 
     const existing = answerMap.get(answerNorm) || {
       word: answerNorm,
+      length: answerNorm.length,
       score: 0,
       rating: 1,
       source: 'internal',
@@ -389,6 +407,7 @@ function extractAnswers(html) {
       if (word && !word.includes('-')) {
         answers.push({
           word,
+          length: word.length,
           rating,
           score: rating * 100,
           source: 'crosswordnexus',
@@ -432,6 +451,7 @@ async function fetchDatamuseAnswers(clue, pattern = '') {
     .filter((item) => item?.word && !item.word.includes(' ') && !item.word.includes('-'))
     .map((item) => ({
       word: normalizeAnswerForLookup(item.word),
+      length: normalizeAnswerForLookup(item.word).length,
       score: item.score || 0,
       source: 'datamuse',
     }))
@@ -439,15 +459,51 @@ async function fetchDatamuseAnswers(clue, pattern = '') {
     .sort((a, b) => b.score - a.score);
 }
 
+function limitAnswers(answers, limit = 12) {
+  return answers.slice(0, limit);
+}
+
+async function fetchExternalAnswers(clue, pattern) {
+  try {
+    const nexusAnswers = limitAnswers(await fetchCrosswordNexusAnswers(clue, pattern));
+    if (nexusAnswers.length > 0) {
+      return {
+        provider: 'crosswordnexus',
+        answers: nexusAnswers,
+      };
+    }
+  } catch (error) {
+    console.error('CrosswordNexus lookup failed:', error);
+  }
+
+  try {
+    const datamuseAnswers = limitAnswers(await fetchDatamuseAnswers(clue, pattern));
+    if (datamuseAnswers.length > 0) {
+      return {
+        provider: 'datamuse',
+        answers: datamuseAnswers,
+      };
+    }
+  } catch (error) {
+    console.error('Datamuse lookup failed:', error);
+  }
+
+  return {
+    provider: '',
+    answers: [],
+  };
+}
+
 async function buildSolvePayload(clue, pattern, env) {
   const normalizedClue = normalizeClueForLookup(clue);
   const normalizedPattern = normalizePattern(pattern);
   const useMiniLookup = shouldUseMiniLookup(env);
 
-  const [hotDailyMatches, coldDailyMatches, miniMatches] = await Promise.all([
+  const [hotDailyMatches, coldDailyMatches, miniMatches, externalResult] = await Promise.all([
     fetchArchiveExactMatches(clue, env),
     fetchColdArchiveExactMatches(normalizedClue, env),
     useMiniLookup ? fetchMiniExactMatches(clue, env) : Promise.resolve([]),
+    fetchExternalAnswers(clue, normalizedPattern),
   ]);
 
   const dailyMatches = sortByDateDesc(
@@ -457,73 +513,27 @@ async function buildSolvePayload(clue, pattern, env) {
     )
   );
 
-  const internalAnswers = buildInternalAnswerResults(dailyMatches, miniMatches, normalizedPattern);
+  const internalAnswers = limitAnswers(
+    buildInternalAnswerResults(dailyMatches, miniMatches, normalizedPattern)
+  );
+  const externalAnswers = externalResult.answers;
 
   const history = {
     daily: dailyMatches,
     mini: miniMatches,
   };
 
-  if (internalAnswers.length > 0) {
-    return {
-      success: true,
-      clue,
-      normalized_clue: normalizedClue,
-      pattern: normalizedPattern,
-      source: 'internal',
-      used_fallback: false,
-      answers: internalAnswers,
-      history,
-      timestamp: new Date().toISOString(),
-    };
-  }
-
-  try {
-    const nexusAnswers = await fetchCrosswordNexusAnswers(clue, normalizedPattern);
-    if (nexusAnswers.length > 0) {
-      return {
-        success: true,
-        clue,
-        normalized_clue: normalizedClue,
-        pattern: normalizedPattern,
-        source: 'crosswordnexus',
-        used_fallback: true,
-        answers: nexusAnswers,
-        history,
-        timestamp: new Date().toISOString(),
-      };
-    }
-  } catch (error) {
-    console.error('CrosswordNexus lookup failed:', error);
-  }
-
-  try {
-    const datamuseAnswers = await fetchDatamuseAnswers(clue, normalizedPattern);
-    if (datamuseAnswers.length > 0) {
-      return {
-        success: true,
-        clue,
-        normalized_clue: normalizedClue,
-        pattern: normalizedPattern,
-        source: 'datamuse',
-        used_fallback: true,
-        answers: datamuseAnswers,
-        history,
-        timestamp: new Date().toISOString(),
-      };
-    }
-  } catch (error) {
-    console.error('Datamuse lookup failed:', error);
-  }
-
   return {
     success: true,
     clue,
     normalized_clue: normalizedClue,
     pattern: normalizedPattern,
-    source: 'internal',
-    used_fallback: true,
-    answers: [],
+    source: internalAnswers.length > 0 ? 'internal' : (externalResult.provider || 'internal'),
+    used_fallback: internalAnswers.length === 0,
+    answers: internalAnswers.length > 0 ? internalAnswers : externalAnswers,
+    historical_answers: internalAnswers,
+    external_answers: externalAnswers,
+    external_source: externalResult.provider,
     history,
     timestamp: new Date().toISOString(),
   };
@@ -542,6 +552,7 @@ async function handleSolveRequest(request, env, ctx) {
   const normalizedPattern = normalizePattern(pattern);
   const cacheUrl = new URL(request.url);
   cacheUrl.search = '';
+  cacheUrl.searchParams.set('v', SOLVER_CACHE_VERSION);
   cacheUrl.searchParams.set('clue', normalizedClue);
   if (normalizedPattern) {
     cacheUrl.searchParams.set('pattern', normalizedPattern);

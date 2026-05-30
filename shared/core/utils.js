@@ -94,7 +94,7 @@ export function getDayOfWeek(dateStr) {
 }
 
 export function repairMojibake(text) {
-  if (!text || !/[ÃÂâ]/.test(text)) {
+  if (!text || !/[ÃƒÃ‚Ã¢]/.test(text)) {
     return text || '';
   }
 
@@ -103,6 +103,22 @@ export function repairMojibake(text) {
     return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
   } catch {
     return text;
+  }
+}
+
+export function decodePercentEscapes(text) {
+  const value = String(text || '');
+
+  if (!/%[0-9A-Fa-f]{2}/.test(value)) {
+    return value;
+  }
+
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value.replace(/%([0-9A-Fa-f]{2})/g, (_, hex) =>
+      String.fromCharCode(parseInt(hex, 16))
+    );
   }
 }
 
@@ -152,13 +168,16 @@ export function stripHtml(text) {
   return String(text || '').replace(/<[^>]*>/g, '');
 }
 
-export function cleanClueText(text) {
+export function cleanDisplayText(text) {
   return repairMojibake(
-    decodeHtmlEntities(stripHtml(String(text || '')))
-      .replace(/:\s*$/, '')
+    decodePercentEscapes(decodeHtmlEntities(stripHtml(String(text || ''))))
       .replace(/\s+/g, ' ')
       .trim()
   );
+}
+
+export function cleanClueText(text) {
+  return cleanDisplayText(text).replace(/:\s*$/, '').trim();
 }
 
 export function normalizeClueForLookup(text) {
@@ -211,16 +230,16 @@ export function normalizePuzzlePayload(payload) {
   return {
     date: payload.date,
     formatted_date: payload.formatted_date || getFormattedDate(payload.date),
-    title: repairMojibake(payload.title || ''),
-    author: repairMojibake(payload.author || ''),
-    editor: repairMojibake(payload.editor || ''),
+    title: cleanDisplayText(payload.title || ''),
+    author: cleanDisplayText(payload.author || ''),
+    editor: cleanDisplayText(payload.editor || ''),
     day_of_week: payload.day_of_week || getDayOfWeek(payload.date),
     permalink: payload.permalink || '',
     clues: sortClues(
       (payload.clues || [])
         .map((clue) => {
           const clueText = cleanClueText(clue.clue_text || clue.clue || '');
-          const answer = repairMojibake(String(clue.answer || '').trim());
+          const answer = cleanDisplayText(String(clue.answer || '').trim());
 
           return {
             number: Number.parseInt(clue.number, 10),
