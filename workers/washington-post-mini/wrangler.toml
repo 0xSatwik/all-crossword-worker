@@ -5,12 +5,4 @@ compatibility_date = "2026-04-09"
 [[d1_databases]]
 binding = "DB"
 database_name = "washington_post_mini_archive"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
-
-
-[triggers]
-crons = [
-  "25 4 * * *",
-  "25 5 * * *",
-  "25 8 * * *"
-]
+database_id = "2596a45e-22b1-45e0-a572-e5333cf815e8"

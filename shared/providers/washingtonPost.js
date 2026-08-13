@@ -29,7 +29,11 @@ function createWashingtonPostProvider(type, title) {
         throw error;
       }
 
-      const clues = (json.words || []).map((word) => {
+      if (!Array.isArray(json.words) || json.words.length === 0) {
+        throw notFound(`No Washington Post ${type} puzzle for ${date}`);
+      }
+
+      const clues = json.words.map((word) => {
         const firstCell = json.cells?.[word.indexes?.[0]];
         const answer = (word.indexes || []).map((index) => json.cells?.[index]?.answer || '').join('');
         return {

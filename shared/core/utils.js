@@ -247,7 +247,13 @@ export async function fetchText(url, options = {}) {
     throw new Error(`HTTP ${response.status} for ${url}`);
   }
 
-  return response.text();
+  const text = await response.text();
+
+  if (!text.trim()) {
+    throw notFound(`Empty response for ${url}`);
+  }
+
+  return text;
 }
 
 export async function fetchJson(url, options = {}) {

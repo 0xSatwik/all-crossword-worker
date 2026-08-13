@@ -14,3 +14,6 @@ crons = [
   "25 5 * * *",
   "25 8 * * *"
 ]
+
+[vars]
+EXTRA_UPDATE_URLS = "https://washington-post-mini-worker.gspeedy.workers.dev/api/update/latest,https://washington-post-sunday-worker.gspeedy.workers.dev/api/update/latest"

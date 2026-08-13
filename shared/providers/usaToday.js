@@ -1,22 +1,11 @@
 import {
   cleanClueText,
-  fetchText,
   fetchJson,
   getDayOfWeek,
   getFormattedDate,
   normalizePuzzlePayload,
-  notFound,
-  xmlAttribute
+  notFound
 } from '../core/utils.js';
-
-function buildLegacyXmlDate(date) {
-  return `${date.slice(2, 4)}${date.slice(5, 7)}${date.slice(8, 10)}`;
-}
-
-function extractTag(xml, tagName) {
-  const match = xml.match(new RegExp(`<${tagName}[^>]*v="([^"]*)"`, 'i'));
-  return match ? xmlAttribute(match[0], 'v') : '';
-}
 
 function buildUsaTodayQueryUrl(query, variables, operationName) {
   const params = new URLSearchParams({
@@ -38,7 +27,7 @@ function buildUsaTodayGraphQlHeaders(referer = 'https://play.usatoday.com/crossw
   };
 }
 
-async function fetchUsaTodayQuickSummary(date) {
+async function fetchUsaTodayGameSummary(type, date) {
   const query = `
     query anonymousCrosswordFindGameData($type: String = "quickcross", $date: String, $pages: PagesInputType) {
       __typename
@@ -67,7 +56,7 @@ async function fetchUsaTodayQuickSummary(date) {
       userID: '',
       pages: { pageNum: 1, perPage: 1 },
       queryType: 'crosswords_unfiltered_games',
-      type: 'quickcross',
+      type,
       date
     },
     'anonymousCrosswordFindGameData'
@@ -79,13 +68,13 @@ async function fetchUsaTodayQuickSummary(date) {
 
   const game = json?.data?.findGameData?.[0];
   if (!game?.id) {
-    throw notFound(`No USA Today Quick Cross puzzle for ${date}`);
+    throw notFound(`No USA Today ${type} puzzle for ${date}`);
   }
 
   return game;
 }
 
-async function fetchUsaTodayQuickGame(id) {
+async function fetchUsaTodayGame(id) {
   const query = `
     query CrosswordsSingleGame($id: String!) {
       __typename
@@ -121,14 +110,32 @@ async function fetchUsaTodayQuickGame(id) {
 
   const game = json?.data?.gameData;
   if (!game?.id) {
-    throw notFound(`No USA Today Quick Cross payload for ${id}`);
+    throw notFound(`No USA Today puzzle payload for ${id}`);
   }
 
   return game;
 }
 
-function buildQuickNumberGrid(layoutRows, width) {
-  return (layoutRows || []).map((row) => {
+export function normalizeLayoutRows(layout, width, height) {
+  if (!Array.isArray(layout) || layout.length === 0) {
+    return [];
+  }
+
+  if (layout.length === height) {
+    return layout;
+  }
+
+  const flat = layout.join('');
+  const cellChars = flat.length === width * height ? 1 : 2;
+  const rows = [];
+  for (let row = 0; row < height; row += 1) {
+    rows.push(flat.slice(row * width * cellChars, (row + 1) * width * cellChars));
+  }
+  return rows;
+}
+
+export function buildQuickNumberGrid(layout, width, height) {
+  return normalizeLayoutRows(layout, width, height).map((row) => {
     const numbers = [];
     for (let index = 0; index < row.length && numbers.length < width; index += 2) {
       const chunk = row.slice(index, index + 2);
@@ -144,23 +151,32 @@ function buildQuickNumberGrid(layoutRows, width) {
   });
 }
 
-function buildQuickNumberIndex(numberGrid, height, width) {
-  const numberToPos = new Map();
+export function buildQuickNumberIndex(numberGrid, height, width) {
+  const acrossNumberToPos = new Map();
+  const downNumberToPos = new Map();
 
   for (let row = 0; row < height; row += 1) {
     for (let col = 0; col < width; col += 1) {
       const value = numberGrid[row]?.[col];
       if (value > 0) {
-        numberToPos.set(value, { row, col });
+        const pos = { row, col };
+        const isBlockedLeft = col === 0 || numberGrid[row]?.[col - 1] === -1;
+        const isBlockedTop = row === 0 || numberGrid[row - 1]?.[col] === -1;
+        if (isBlockedLeft) {
+          acrossNumberToPos.set(value, pos);
+        }
+        if (isBlockedTop) {
+          downNumberToPos.set(value, pos);
+        }
       }
     }
   }
 
-  return numberToPos;
+  return { across: acrossNumberToPos, down: downNumberToPos };
 }
 
-function extractQuickAnswer(number, direction, numberGrid, solutionGrid, width, height, numberToPos) {
-  const start = numberToPos.get(number);
+export function extractQuickAnswer(number, direction, numberGrid, solutionGrid, width, height, numberToPos) {
+  const start = numberToPos[direction]?.get(number);
   if (!start) {
     return '';
   }
@@ -191,7 +207,7 @@ function extractQuickAnswer(number, direction, numberGrid, solutionGrid, width, 
   return answer;
 }
 
-function parseQuickClueBlock(raw, direction, numberGrid, solutionGrid, width, height, numberToPos) {
+export function parseQuickClueBlock(raw, direction, numberGrid, solutionGrid, width, height, numberToPos) {
   return String(raw || '')
     .split('\n')
     .map((line) => line.trim())
@@ -212,50 +228,63 @@ function parseQuickClueBlock(raw, direction, numberGrid, solutionGrid, width, he
     .filter((clue) => Number.isFinite(clue.number) && clue.clue_text && clue.answer);
 }
 
+export function buildUsaTodayPuzzle({ summary, puzzle, date, title }) {
+  const width = Number.parseInt(puzzle.width, 10);
+  const height = Number.parseInt(puzzle.height, 10);
+  const numberGrid = buildQuickNumberGrid(puzzle.layout, width, height);
+  const solutionGrid = normalizeLayoutRows(puzzle.solution || [], width, height);
+  const numberToPos = buildQuickNumberIndex(numberGrid, height, width);
+
+  const resolvedTitle =
+    (puzzle.title && puzzle.title !== 'QuickCross')
+      ? puzzle.title
+      : (summary.title && summary.title !== 'QuickCross') ? summary.title : title;
+
+  return normalizePuzzlePayload({
+    date,
+    formatted_date: getFormattedDate(date),
+    title: resolvedTitle,
+    author: puzzle.author || summary.author || '',
+    editor: puzzle.editor || summary.editor || '',
+    day_of_week: getDayOfWeek(date),
+    permalink: `https://play.usatoday.com/quick-cross/${summary.id}`,
+    clues: [
+      ...parseQuickClueBlock(
+        puzzle.acrossClue,
+        'across',
+        numberGrid,
+        solutionGrid,
+        width,
+        height,
+        numberToPos
+      ),
+      ...parseQuickClueBlock(
+        puzzle.downClue,
+        'down',
+        numberGrid,
+        solutionGrid,
+        width,
+        height,
+        numberToPos
+      )
+    ]
+  });
+}
+
 export function createUsaTodayDailyProvider() {
   return {
     slug: 'usa-today-daily',
     title: 'USA Today Crossword',
     lookbackDays: 14,
     async fetchByDate(date) {
-      const code = buildLegacyXmlDate(date);
-      const url = `https://picayune.uclick.com/comics/usaon/data/usaon${code}-data.xml`;
-      const xml = await fetchText(url);
+      const summary = await fetchUsaTodayGameSummary('crossword', date);
+      const puzzle = await fetchUsaTodayGame(summary.id);
 
-      if (!xml.includes('<crossword')) {
-        throw notFound(`No USA Today crossword for ${date}`);
-      }
-
-      const getBlock = (tag) => {
-        const match = xml.match(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, 'i'));
-        return match ? match[1] : '';
-      };
-
-      const parseBlock = (content, direction) => {
-        const matches = [...content.matchAll(/<[ad]\d+\s+([^>]+)\/>/gi)];
-        return matches.map((match) => {
-          const attrs = match[1];
-          return {
-            number: Number.parseInt(xmlAttribute(attrs, 'cn'), 10),
-            direction,
-            clue_text: xmlAttribute(attrs, 'c'),
-            answer: xmlAttribute(attrs, 'a')
-          };
-        });
-      };
-
-      return normalizePuzzlePayload({
+      return buildUsaTodayPuzzle({
+        summary,
+        puzzle,
         date,
-        formatted_date: getFormattedDate(date),
-        title: extractTag(xml, 'Title') || 'USA Today Crossword',
-        author: extractTag(xml, 'Author'),
-        editor: extractTag(xml, 'Editor').replace(/^Ed\.\s*/i, ''),
-        day_of_week: getDayOfWeek(date),
-        permalink: url,
-        clues: [
-          ...parseBlock(getBlock('across'), 'across'),
-          ...parseBlock(getBlock('down'), 'down')
-        ]
+        title: 'USA Today Crossword'
       });
     }
   };
@@ -267,41 +296,14 @@ export function createUsaTodayQuickProvider() {
     title: 'USA Today Quick Cross',
     lookbackDays: 30,
     async fetchByDate(date) {
-      const summary = await fetchUsaTodayQuickSummary(date);
-      const puzzle = await fetchUsaTodayQuickGame(summary.id);
-      const width = Number.parseInt(puzzle.width, 10);
-      const height = Number.parseInt(puzzle.height, 10);
-      const numberGrid = buildQuickNumberGrid(puzzle.layout, width);
-      const numberToPos = buildQuickNumberIndex(numberGrid, height, width);
+      const summary = await fetchUsaTodayGameSummary('quickcross', date);
+      const puzzle = await fetchUsaTodayGame(summary.id);
 
-      return normalizePuzzlePayload({
+      return buildUsaTodayPuzzle({
+        summary,
+        puzzle,
         date,
-        formatted_date: getFormattedDate(date),
-        title: 'USA Today Quick Cross',
-        author: puzzle.author || summary.author || '',
-        editor: puzzle.editor || summary.editor || '',
-        day_of_week: getDayOfWeek(date),
-        permalink: `https://play.usatoday.com/quick-cross/${summary.id}`,
-        clues: [
-          ...parseQuickClueBlock(
-            puzzle.acrossClue,
-            'across',
-            numberGrid,
-            puzzle.solution || [],
-            width,
-            height,
-            numberToPos
-          ),
-          ...parseQuickClueBlock(
-            puzzle.downClue,
-            'down',
-            numberGrid,
-            puzzle.solution || [],
-            width,
-            height,
-            numberToPos
-          )
-        ]
+        title: 'USA Today Quick Cross'
       });
     }
   };

@@ -3,67 +3,11 @@ import {
   fetchText,
   getDayOfWeek,
   getFormattedDate,
-  normalizePuzzlePayload,
-  notFound,
-  xmlAttribute
+  normalizePuzzlePayload
 } from '../core/utils.js';
 
 function buildLegacyXmlDate(date) {
   return `${date.slice(2, 4)}${date.slice(5, 7)}${date.slice(8, 10)}`;
-}
-
-function extractTag(xml, tagName) {
-  const match = xml.match(new RegExp(`<${tagName}[^>]*v="([^"]*)"`, 'i'));
-  return match ? xmlAttribute(match[0], 'v') : '';
-}
-
-export function createLatimesDailyProvider() {
-  return {
-    slug: 'latimes-daily',
-    title: 'Los Angeles Times Daily Crossword',
-    lookbackDays: 14,
-    async fetchByDate(date) {
-      const code = buildLegacyXmlDate(date);
-      const url = `https://picayune.uclick.com/comics/tmcal/data/tmcal${code}-data.xml`;
-      const xml = await fetchText(url);
-
-      if (!xml.includes('<crossword')) {
-        throw notFound(`No LA Times daily puzzle for ${date}`);
-      }
-
-      const getBlock = (tag) => {
-        const match = xml.match(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, 'i'));
-        return match ? match[1] : '';
-      };
-
-      const parseBlock = (content, direction) => {
-        const matches = [...content.matchAll(/<[ad]\d+\s+([^>]+)\/>/gi)];
-        return matches.map((match) => {
-          const attrs = match[1];
-          return {
-            number: Number.parseInt(xmlAttribute(attrs, 'cn'), 10),
-            direction,
-            clue_text: xmlAttribute(attrs, 'c'),
-            answer: xmlAttribute(attrs, 'a')
-          };
-        });
-      };
-
-      return normalizePuzzlePayload({
-        date,
-        formatted_date: getFormattedDate(date),
-        title: extractTag(xml, 'Title') || 'Los Angeles Times Daily Crossword',
-        author: extractTag(xml, 'Author'),
-        editor: extractTag(xml, 'Editor').replace(/^Ed\.\s*/i, ''),
-        day_of_week: getDayOfWeek(date),
-        permalink: url,
-        clues: [
-          ...parseBlock(getBlock('across'), 'across'),
-          ...parseBlock(getBlock('down'), 'down')
-        ]
-      });
-    }
-  };
 }
 
 function computeFvlt(set, puzzleId, uid) {
@@ -78,11 +22,11 @@ function computeFvlt(set, puzzleId, uid) {
   return ((hash(set) ^ hash(puzzleId) ^ hash(uid)) >>> 0).toString(16);
 }
 
-async function getLatMiniLoadToken() {
-  const pickerUrl = 'https://lat.amuselabs.com/lat/date-picker?set=latimes-mini';
+async function getLatAmuseLoadToken(set) {
+  const pickerUrl = `https://lat.amuselabs.com/lat/date-picker?set=${set}`;
   const pickerHtml = await fetchText(pickerUrl, {
     headers: {
-      Referer: 'https://www.latimes.com/games/mini-crossword',
+      Referer: 'https://www.latimes.com/games/crossword',
       Origin: 'https://www.latimes.com'
     }
   });
@@ -119,34 +63,56 @@ async function getLatMiniLoadToken() {
   return { loadToken, uid };
 }
 
+async function fetchLatAmusePuzzle({ set, id, date, title }) {
+  const { loadToken, uid } = await getLatAmuseLoadToken(set);
+  let url = `https://lat.amuselabs.com/lat/crossword?id=${id}&set=${set}`;
+
+  if (loadToken) {
+    url += `&loadToken=${encodeURIComponent(loadToken)}`;
+  }
+  if (uid) {
+    url += `&fvlt=${computeFvlt(set, id, uid)}`;
+  }
+
+  return fetchAmuseLabsPuzzle({
+    url,
+    date,
+    defaults: {
+      title,
+      formatted_date: getFormattedDate(date),
+      day_of_week: getDayOfWeek(date),
+      permalink: url
+    }
+  });
+}
+
+export function createLatimesDailyProvider() {
+  return {
+    slug: 'latimes-daily',
+    title: 'Los Angeles Times Daily Crossword',
+    lookbackDays: 14,
+    async fetchByDate(date) {
+      return fetchLatAmusePuzzle({
+        set: 'latimes',
+        id: `tca${buildLegacyXmlDate(date)}`,
+        date,
+        title: 'Los Angeles Times Daily Crossword'
+      });
+    }
+  };
+}
+
 export function createLatimesMiniProvider() {
   return {
     slug: 'latimes-mini',
     title: 'LA Times Mini',
     lookbackDays: 14,
     async fetchByDate(date) {
-      const compact = date.replace(/-/g, '');
-      const set = 'latimes-mini';
-      const puzzleId = `latimes-mini-${compact}`;
-      const { loadToken, uid } = await getLatMiniLoadToken();
-      let url = `https://lat.amuselabs.com/lat/crossword?id=${puzzleId}&set=${set}`;
-
-      if (loadToken) {
-        url += `&loadToken=${encodeURIComponent(loadToken)}`;
-      }
-      if (uid) {
-        url += `&fvlt=${computeFvlt(set, puzzleId, uid)}`;
-      }
-
-      return fetchAmuseLabsPuzzle({
-        url,
+      return fetchLatAmusePuzzle({
+        set: 'latimes-mini',
+        id: `latimes-mini-${date.replace(/-/g, '')}`,
         date,
-        defaults: {
-          title: 'LA Times Mini',
-          formatted_date: getFormattedDate(date),
-          day_of_week: getDayOfWeek(date),
-          permalink: url
-        }
+        title: 'LA Times Mini'
       });
     }
   };
