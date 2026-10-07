@@ -4,3 +4,13 @@ node_modules/
 .env.*
 cloudflare.txt
 frontend/crossword-solver-frontend/
+node_modules/
+.next/
+.wrangler/
+target/
+__pycache__/
+dist/
+build/
+.svelte-kit/
+coverage/
+.cache/
